@@ -10,10 +10,10 @@ pub(crate) mod function {
     /// A general purpose connector connecting to a repository identified by the given `url`.
     ///
     /// This includes connections to
-    /// [local repositories](crate::client::blocking_io::file::connect()),
-    /// [repositories over ssh](crate::client::blocking_io::ssh::connect()),
-    /// [git daemons](crate::client::git::connect()),
-    /// and if compiled in connections to [git repositories over https](crate::client::http::connect()).
+    /// [local repositories][crate::client::blocking_io::file::connect()],
+    /// [repositories over ssh][crate::client::blocking_io::ssh::connect()],
+    /// [git daemons][crate::client::blocking_io::connect::connect()],
+    /// and if compiled in connections to [git repositories over https][crate::client::blocking_io::http::connect()].
     ///
     /// Use `options` to further control specifics of the transport resulting from the connection.
     pub fn connect<Url, E>(url: Url, options: super::Options) -> Result<Box<dyn Transport + Send>, Error>
@@ -74,3 +74,5 @@ pub(crate) mod function {
         })
     }
 }
+
+pub use function::connect;
