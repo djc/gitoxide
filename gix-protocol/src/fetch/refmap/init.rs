@@ -1,18 +1,20 @@
 use std::collections::HashSet;
 
-use bstr::{BString, ByteVec};
+use bstr::{BString, ByteSlice, ByteVec};
 use gix_features::progress::Progress;
+use gix_refspec::RefSpec;
 
 #[cfg(feature = "async-client")]
 use crate::transport::client::async_io::Transport;
 #[cfg(feature = "blocking-client")]
 use crate::transport::client::blocking_io::Transport;
 use crate::{
-    fetch,
     fetch::{
+        self,
         refmap::{Mapping, Source, SpecIndex},
         RefMap,
     },
+    handshake::{Outcome, Ref},
 };
 
 /// The error returned by [`RefMap::new()`].
@@ -78,8 +80,6 @@ impl RefMap {
         T: Transport,
     {
         let _span = gix_trace::coarse!("gix_protocol::fetch::RefMap::new()");
-        let null = gix_hash::ObjectId::null(gix_hash::Kind::Sha1); // OK to hardcode Sha1, it's not supposed to match, ever.
-
         let all_refspecs = {
             let mut s: Vec<_> = fetch_refspecs.to_vec();
             s.extend(extra_refspecs.clone());
@@ -115,8 +115,20 @@ impl RefMap {
                 .await?
             }
         };
+
+        Self::from_refs(remote_refs, handshake, fetch_refspecs, all_refspecs, extra_refspecs)
+    }
+
+    fn from_refs(
+        remote_refs: Vec<Ref>,
+        outcome: &Outcome,
+        fetch_refspecs: &[RefSpec],
+        all_refspecs: Vec<RefSpec>,
+        extra_refspecs: Vec<RefSpec>,
+    ) -> Result<RefMap, Error> {
         let num_explicit_specs = fetch_refspecs.len();
         let group = gix_refspec::MatchGroup::from_fetch_specs(all_refspecs.iter().map(gix_refspec::RefSpec::to_ref));
+        let null = gix_hash::ObjectId::null(gix_hash::Kind::Sha1); // OK to hardcode Sha1, it's not supposed to match, ever.
         let (res, fixes) = group
             .match_lhs(remote_refs.iter().map(|r| {
                 let (full_ref_name, target, object) = r.unpack();
@@ -150,8 +162,21 @@ impl RefMap {
             })
             .collect();
 
-        let object_hash = extract_object_format(handshake)?;
-        Ok(RefMap {
+        // Assume sha1 if server says nothing, otherwise configure anything beyond sha1 in the local repo configuration
+        let object_hash =
+            if let Some(object_format) = outcome.capabilities.capability("object-format").and_then(|c| c.value()) {
+                let object_format = object_format.to_str().map_err(|_| Error::UnknownObjectFormat {
+                    format: object_format.into(),
+                })?;
+                match object_format {
+                    "sha1" => gix_hash::Kind::Sha1,
+                    unknown => return Err(Error::UnknownObjectFormat { format: unknown.into() }),
+                }
+            } else {
+                gix_hash::Kind::Sha1
+            };
+
+        Ok(Self {
             mappings,
             refspecs: fetch_refspecs.to_vec(),
             extra_refspecs,
@@ -160,23 +185,4 @@ impl RefMap {
             object_hash,
         })
     }
-}
-
-/// Assume sha1 if server says nothing, otherwise configure anything beyond sha1 in the local repo configuration
-#[allow(clippy::result_large_err)]
-fn extract_object_format(outcome: &crate::handshake::Outcome) -> Result<gix_hash::Kind, Error> {
-    use bstr::ByteSlice;
-    let object_hash =
-        if let Some(object_format) = outcome.capabilities.capability("object-format").and_then(|c| c.value()) {
-            let object_format = object_format.to_str().map_err(|_| Error::UnknownObjectFormat {
-                format: object_format.into(),
-            })?;
-            match object_format {
-                "sha1" => gix_hash::Kind::Sha1,
-                unknown => return Err(Error::UnknownObjectFormat { format: unknown.into() }),
-            }
-        } else {
-            gix_hash::Kind::Sha1
-        };
-    Ok(object_hash)
 }
