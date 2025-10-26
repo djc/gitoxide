@@ -58,8 +58,6 @@ pub mod handshake;
 
 ///
 pub mod ls_refs;
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub use ls_refs::function::ls_refs;
 
 mod util;
 pub use util::*;

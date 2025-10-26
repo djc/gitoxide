@@ -41,31 +41,23 @@ pub enum Action {
     Skip,
 }
 
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub(crate) mod function {
+#[cfg(feature = "async-client")]
+pub(crate) mod async_io {
     use std::borrow::Cow;
 
     use bstr::BString;
     use gix_features::progress::Progress;
     use gix_transport::client::Capabilities;
-    use maybe_async::maybe_async;
 
     use super::{Action, Error};
-    #[cfg(feature = "async-client")]
     use crate::handshake::refs::async_io::from_v2_refs;
-    #[cfg(feature = "blocking-client")]
-    use crate::handshake::refs::blocking_io::from_v2_refs;
-    #[cfg(feature = "async-client")]
     use crate::transport::client::async_io::{Transport, TransportV2Ext};
-    #[cfg(feature = "blocking-client")]
-    use crate::transport::client::blocking_io::{Transport, TransportV2Ext};
-    use crate::{handshake::Ref, indicate_end_of_interaction, Command};
+    use crate::{async_io::indicate_end_of_interaction, handshake::Ref, Command};
 
     /// Invoke an ls-refs V2 command on `transport`, which requires a prior handshake that yielded
     /// server `capabilities`. `prepare_ls_refs(capabilities, arguments, features)` can be used to alter the _ls-refs_. `progress` is used to provide feedback.
     /// Note that `prepare_ls_refs()` is expected to add the `(agent, Some(name))` to the list of `features`.
     /// If `trace` is `true`, all packetlines received or sent will be passed to the facilities of the `gix-trace` crate.
-    #[maybe_async]
     pub async fn ls_refs(
         mut transport: impl Transport,
         capabilities: &Capabilities,
@@ -100,22 +92,92 @@ pub(crate) mod function {
 
                 progress.step();
                 progress.set_name("list refs".into());
-                let mut remote_refs = transport
-                    .invoke(
-                        ls_refs.as_str(),
-                        ls_features.into_iter(),
-                        if ls_args.is_empty() {
-                            None
-                        } else {
-                            Some(ls_args.into_iter())
-                        },
-                        trace,
-                    )
-                    .await?;
-                from_v2_refs(&mut remote_refs).await?
+                let mut remote_refs = transport.invoke(
+                    ls_refs.as_str(),
+                    ls_features.into_iter(),
+                    if ls_args.is_empty() {
+                        None
+                    } else {
+                        Some(ls_args.into_iter())
+                    },
+                    trace,
+                )?;
+                from_v2_refs(&mut remote_refs)?
             }
             Err(err) => {
-                indicate_end_of_interaction(transport, trace).await?;
+                indicate_end_of_interaction(transport, trace)?;
+                return Err(err.into());
+            }
+        };
+        Ok(refs)
+    }
+}
+
+#[cfg(feature = "blocking-client")]
+pub(crate) mod blocking_io {
+    use std::borrow::Cow;
+
+    use bstr::BString;
+    use gix_features::progress::Progress;
+    use gix_transport::client::Capabilities;
+
+    use super::{Action, Error};
+    use crate::handshake::refs::blocking_io::from_v2_refs;
+    use crate::transport::client::blocking_io::{Transport, TransportV2Ext};
+    use crate::{blocking_io::indicate_end_of_interaction, handshake::Ref, Command};
+
+    /// Invoke an ls-refs V2 command on `transport`, which requires a prior handshake that yielded
+    /// server `capabilities`. `prepare_ls_refs(capabilities, arguments, features)` can be used to alter the _ls-refs_. `progress` is used to provide feedback.
+    /// Note that `prepare_ls_refs()` is expected to add the `(agent, Some(name))` to the list of `features`.
+    /// If `trace` is `true`, all packetlines received or sent will be passed to the facilities of the `gix-trace` crate.
+    pub async fn ls_refs(
+        mut transport: impl Transport,
+        capabilities: &Capabilities,
+        prepare_ls_refs: impl FnOnce(
+            &Capabilities,
+            &mut Vec<BString>,
+            &mut Vec<(&str, Option<Cow<'static, str>>)>,
+        ) -> std::io::Result<Action>,
+        progress: &mut impl Progress,
+        trace: bool,
+    ) -> Result<Vec<Ref>, Error> {
+        let _span = gix_features::trace::detail!("gix_protocol::ls_refs()", capabilities = ?capabilities);
+        let ls_refs = Command::LsRefs;
+        let mut ls_features = ls_refs.default_features(gix_transport::Protocol::V2, capabilities);
+        let mut ls_args = ls_refs.initial_v2_arguments(&ls_features);
+        if capabilities
+            .capability("ls-refs")
+            .and_then(|cap| cap.supports("unborn"))
+            .unwrap_or_default()
+        {
+            ls_args.push("unborn".into());
+        }
+        let refs = match prepare_ls_refs(capabilities, &mut ls_args, &mut ls_features) {
+            Ok(Action::Skip) => Vec::new(),
+            Ok(Action::Continue) => {
+                ls_refs.validate_argument_prefixes(
+                    gix_transport::Protocol::V2,
+                    capabilities,
+                    &ls_args,
+                    &ls_features,
+                )?;
+
+                progress.step();
+                progress.set_name("list refs".into());
+                let mut remote_refs = transport.invoke(
+                    ls_refs.as_str(),
+                    ls_features.into_iter(),
+                    if ls_args.is_empty() {
+                        None
+                    } else {
+                        Some(ls_args.into_iter())
+                    },
+                    trace,
+                )?;
+                from_v2_refs(&mut remote_refs)?
+            }
+            Err(err) => {
+                indicate_end_of_interaction(transport, trace)?;
                 return Err(err.into());
             }
         };
