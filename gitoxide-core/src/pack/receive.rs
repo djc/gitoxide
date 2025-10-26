@@ -22,6 +22,10 @@ pub use gix::{
     },
     NestedProgress, Progress,
 };
+#[cfg(feature = "async-client")]
+use gix::protocol::fetch::async_io::handshake;
+#[cfg(feature = "blocking-client")]
+use gix::protocol::fetch::blocking_io::handshake;
 
 use crate::{net, pack::receive::protocol::fetch::negotiate, OutputFormat};
 
@@ -65,7 +69,7 @@ where
     .is_some();
 
     let agent = gix::protocol::agent(gix::env::agent());
-    let mut handshake = gix::protocol::fetch::handshake(
+    let mut handshake = handshake(
         &mut transport.inner,
         gix::protocol::credentials::builtin,
         vec![("agent".into(), Some(agent.clone()))],

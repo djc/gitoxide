@@ -16,12 +16,6 @@ doctest = false
 
 [features]
 
-#! ### _Mutually exclusive client _
-#! The _client_ portion of the protocol uses `gix-transport` to communicate to a server. For it to be available, one of the following features must
-#! be selected.
-#!
-#! Specifying both causes a compile error, preventing the use of `--all-features`.
-
 ## If set, blocking command implementations are available and will use the blocking version of the `gix-transport` crate.
 blocking-client = [
     "gix-transport/blocking-client",

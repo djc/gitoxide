@@ -52,13 +52,14 @@ pub(crate) mod function {
 
     use super::{Action, Error};
     #[cfg(feature = "async-client")]
+    use crate::handshake::refs::async_io::from_v2_refs;
+    #[cfg(feature = "blocking-client")]
+    use crate::handshake::refs::blocking_io::from_v2_refs;
+    #[cfg(feature = "async-client")]
     use crate::transport::client::async_io::{Transport, TransportV2Ext};
     #[cfg(feature = "blocking-client")]
     use crate::transport::client::blocking_io::{Transport, TransportV2Ext};
-    use crate::{
-        handshake::{refs::from_v2_refs, Ref},
-        indicate_end_of_interaction, Command,
-    };
+    use crate::{handshake::Ref, indicate_end_of_interaction, Command};
 
     /// Invoke an ls-refs V2 command on `transport`, which requires a prior handshake that yielded
     /// server `capabilities`. `prepare_ls_refs(capabilities, arguments, features)` can be used to alter the _ls-refs_. `progress` is used to provide feedback.

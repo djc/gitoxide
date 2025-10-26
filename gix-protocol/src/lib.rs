@@ -53,14 +53,8 @@ pub use fetch::function::fetch;
 mod remote_progress;
 pub use remote_progress::RemoteProgress;
 
-#[cfg(all(feature = "blocking-client", feature = "async-client"))]
-compile_error!("Cannot set both 'blocking-client' and 'async-client' features as they are mutually exclusive");
-
 ///
 pub mod handshake;
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-#[cfg(feature = "handshake")]
-pub use handshake::function::handshake;
 
 ///
 pub mod ls_refs;

@@ -1,5 +1,9 @@
 use gix_features::progress::Progress;
 #[cfg(feature = "async-network-client")]
+use gix_protocol::fetch::async_io::handshake;
+#[cfg(feature = "blocking-network-client")]
+use gix_protocol::fetch::blocking_io::handshake;
+#[cfg(feature = "async-network-client")]
 use gix_transport::client::async_io::Transport;
 #[cfg(feature = "blocking-network-client")]
 use gix_transport::client::blocking_io::Transport;
@@ -143,7 +147,7 @@ where
         if let Some(config) = self.transport_options.as_ref() {
             self.transport.inner.configure(&**config)?;
         }
-        let mut handshake = gix_protocol::fetch::handshake(
+        let mut handshake = handshake(
             &mut self.transport.inner,
             authenticate,
             handshake_parameters,

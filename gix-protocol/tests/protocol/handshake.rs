@@ -5,7 +5,15 @@ fn oid(hex: &str) -> gix_hash::ObjectId {
     gix_hash::ObjectId::from_hex(hex.as_bytes()).expect("40 bytes hex")
 }
 
-use gix_protocol::handshake::{refs, Ref};
+#[cfg(feature = "async-client")]
+use gix_protocol::handshake::refs::async_io::{
+    from_v1_refs_received_as_part_of_handshake_and_capabilities, from_v2_refs,
+};
+#[cfg(feature = "blocking-client")]
+use gix_protocol::handshake::refs::blocking_io::{
+    from_v1_refs_received_as_part_of_handshake_and_capabilities, from_v2_refs,
+};
+use gix_protocol::handshake::Ref;
 
 #[maybe_async::test(feature = "blocking-client", async(feature = "async-client", async_std::test))]
 async fn extract_references_from_v2_refs() {
@@ -22,7 +30,7 @@ unborn refs/heads/symbolic symref-target:refs/heads/target
             .as_bytes(),
     );
 
-    let out = refs::from_v2_refs(input).await.expect("no failure on valid input");
+    let out = from_v2_refs(input).await.expect("no failure on valid input");
 
     assert_eq!(
         out,
@@ -79,7 +87,7 @@ dce0ea858eef7ff61ad345cc5cdac62203fb3c10 refs/tags/gix-commitgraph-v0.0.0
 21c9b7500cb144b3169a6537961ec2b9e865be81 refs/tags/gix-commitgraph-v0.0.0^{}"
             .as_bytes(),
     );
-    let (out, shallow) = refs::from_v1_refs_received_as_part_of_handshake_and_capabilities(
+    let (out, shallow) = from_v1_refs_received_as_part_of_handshake_and_capabilities(
         input,
         Capabilities::from_bytes(b"\0symref=HEAD:refs/heads/main symref=MISSING_NAMESPACE_TARGET:(null)")
             .expect("valid capabilities")
@@ -133,7 +141,7 @@ shallow 21c9b7500cb144b3169a6537961ec2b9e865be81
 shallow dce0ea858eef7ff61ad345cc5cdac62203fb3c10"
             .as_bytes(),
     );
-    let (out, shallow) = refs::from_v1_refs_received_as_part_of_handshake_and_capabilities(
+    let (out, shallow) = from_v1_refs_received_as_part_of_handshake_and_capabilities(
         input,
         Capabilities::from_bytes(b"\0symref=HEAD:refs/heads/main symref=MISSING_NAMESPACE_TARGET:(null)")
             .expect("valid capabilities")

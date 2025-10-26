@@ -2,6 +2,10 @@ mod fetch_fn {
     use std::borrow::Cow;
 
     use gix_features::progress::NestedProgress;
+    #[cfg(feature = "async-client")]
+    use gix_protocol::fetch::async_io::handshake;
+    #[cfg(feature = "blocking-client")]
+    use gix_protocol::fetch::blocking_io::handshake;
     use gix_protocol::{
         credentials,
         fetch::{Arguments, Response},
@@ -79,7 +83,7 @@ mod fetch_fn {
             refs,
             v1_shallow_updates: _ignored_shallow_updates_as_it_is_deprecated,
             capabilities,
-        } = gix_protocol::fetch::handshake(
+        } = handshake(
             &mut transport,
             authenticate,
             delegate.handshake_extra_parameters(),
