@@ -42,7 +42,7 @@ impl Response {
     /// is to predict how to parse V1 output only, and neither `client_expects_pack` nor `wants_to_negotiate` are relevant for V2.
     /// This ugliness is in place to avoid having to resort to an [an even more complex ugliness](https://github.com/git/git/blob/9e49351c3060e1fa6e0d2de64505b7becf157f28/fetch-pack.c#L583-L594)
     /// that `git` has to use to predict how many acks are supposed to be read. We also genuinely hope that this covers it all….
-    pub fn from_line_reader<'a>(
+    pub fn from_line_reader_blocking<'a>(
         version: Protocol,
         reader: &mut impl ExtendedBufRead<'a>,
         client_expects_pack: bool,

@@ -166,13 +166,21 @@ mod fetch_fn {
             if sideband_all {
                 setup_remote_progress(&mut progress, &mut reader);
             }
-            let response = Response::from_line_reader(
+            #[cfg(feature = "async-client")]
+            let response = Response::from_line_reader_async(
                 protocol_version,
                 &mut reader,
                 true,  /* hack, telling us we don't want this delegate approach anymore */
                 false, /* just as much of a hack which causes us to expect a pack immediately */
             )
             .await?;
+            #[cfg(feature = "blocking-client")]
+            let response = Response::from_line_reader_blocking(
+                protocol_version,
+                &mut reader,
+                true,  /* hack, telling us we don't want this delegate approach anymore */
+                false, /* just as much of a hack which causes us to expect a pack immediately */
+            )?;
             previous_response = if response.has_pack() {
                 progress.step();
                 progress.set_name("receiving pack".into());

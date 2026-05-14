@@ -130,8 +130,21 @@ where
                 if sideband_all {
                     setup_remote_progress(&mut progress, &mut reader, should_interrupt);
                 }
-                let response =
-                    crate::fetch::Response::from_line_reader(protocol_version, &mut reader, is_done, !is_done).await?;
+                #[cfg(feature = "async-client")]
+                let response = crate::fetch::Response::from_line_reader_async(
+                    protocol_version,
+                    &mut reader,
+                    is_done,
+                    !is_done,
+                )
+                .await?;
+                #[cfg(not(feature = "async-client"))]
+                let response = crate::fetch::Response::from_line_reader_blocking(
+                    protocol_version,
+                    &mut reader,
+                    is_done,
+                    !is_done,
+                )?;
                 let has_pack = response.has_pack();
                 previous_response = Some(response);
                 if has_pack {
