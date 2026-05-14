@@ -16,15 +16,17 @@ doctest = false
 
 [features]
 
-#! ### _Mutually exclusive client _
-#! The _client_ portion of the protocol uses `gix-transport` to communicate to a server. For it to be available, one of the following features must
-#! be selected.
-#!
-#! Specifying both causes a compile error, preventing the use of `--all-features`.
+#! ### Client I/O modes
+#! The _client_ portion of the protocol uses `gix-transport` to communicate to a server. For it to be available, one of the
+#! following features must be selected. Both can be enabled at the same time, in which case both blocking and async APIs are
+#! available side-by-side.
 
 ## If set, blocking command implementations are available and will use the blocking version of the `gix-transport` crate.
 blocking-client = [
     "gix-transport/blocking-client",
+    # Required by downstream callers that still use the `maybe_async` re-export to compile a single function
+    # in either blocking or async mode. This is a global toggle, so when both `blocking-client` and
+    # `async-client` are enabled the sync form takes precedence for any `#[maybe_async]` site.
     "maybe-async/is_sync",
     "handshake",
     "fetch"
