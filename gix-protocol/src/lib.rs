@@ -47,8 +47,10 @@ pub use maybe_async;
 
 ///
 pub mod fetch;
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
-pub use fetch::function::fetch;
+#[cfg(feature = "async-client")]
+pub use fetch::function::fetch_async;
+#[cfg(feature = "blocking-client")]
+pub use fetch::function::fetch_blocking;
 
 mod remote_progress;
 pub use remote_progress::RemoteProgress;

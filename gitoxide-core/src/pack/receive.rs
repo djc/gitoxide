@@ -64,7 +64,8 @@ where
     .is_some();
 
     let agent = gix::protocol::agent(gix::env::agent());
-    let mut handshake = gix::protocol::handshake(
+    #[cfg(feature = "async-client")]
+    let mut handshake = gix::protocol::handshake_async(
         &mut transport.inner,
         transport::Service::UploadPack,
         gix::protocol::credentials::builtin,
@@ -72,6 +73,14 @@ where
         &mut progress,
     )
     .await?;
+    #[cfg(feature = "blocking-client")]
+    let mut handshake = gix::protocol::handshake_blocking(
+        &mut transport.inner,
+        transport::Service::UploadPack,
+        gix::protocol::credentials::builtin,
+        vec![("agent".into(), Some(agent.clone()))],
+        &mut progress,
+    )?;
     if wanted_refs.is_empty() {
         wanted_refs.push("refs/heads/*:refs/remotes/origin/*".into());
     }
@@ -107,39 +116,54 @@ where
     }
 
     let mut negotiate = Negotiate { refmap: &refmap };
-    gix::protocol::fetch(
+    let consume_pack = |read_pack: &mut dyn std::io::BufRead,
+                        progress: &mut dyn gix::progress::DynNestedProgress,
+                        should_interrupt: &std::sync::atomic::AtomicBool| {
+        receive_pack_blocking(
+            directory,
+            refs_directory,
+            read_pack,
+            progress,
+            &refmap.remote_refs,
+            should_interrupt,
+            ctx.out,
+            ctx.thread_limit,
+            ctx.object_hash,
+            ctx.format,
+        )
+        .map(|_| true)
+    };
+    let context = gix::protocol::fetch::Context {
+        handshake: &mut handshake,
+        transport: &mut transport.inner,
+        user_agent,
+        trace_packetlines,
+    };
+    let options = gix::protocol::fetch::Options {
+        shallow_file: "no shallow file required as we reject it to keep it simple".into(),
+        shallow: &Default::default(),
+        tags: Default::default(),
+        reject_shallow_remote: true,
+    };
+    #[cfg(feature = "async-client")]
+    gix::protocol::fetch_async(
         &mut negotiate,
-        |read_pack, progress, should_interrupt| {
-            receive_pack_blocking(
-                directory,
-                refs_directory,
-                read_pack,
-                progress,
-                &refmap.remote_refs,
-                should_interrupt,
-                ctx.out,
-                ctx.thread_limit,
-                ctx.object_hash,
-                ctx.format,
-            )
-            .map(|_| true)
-        },
+        consume_pack,
         progress,
         &ctx.should_interrupt,
-        gix::protocol::fetch::Context {
-            handshake: &mut handshake,
-            transport: &mut transport.inner,
-            user_agent,
-            trace_packetlines,
-        },
-        gix::protocol::fetch::Options {
-            shallow_file: "no shallow file required as we reject it to keep it simple".into(),
-            shallow: &Default::default(),
-            tags: Default::default(),
-            reject_shallow_remote: true,
-        },
+        context,
+        options,
     )
     .await?;
+    #[cfg(feature = "blocking-client")]
+    gix::protocol::fetch_blocking(
+        &mut negotiate,
+        consume_pack,
+        progress,
+        &ctx.should_interrupt,
+        context,
+        options,
+    )?;
     Ok(())
 }
 

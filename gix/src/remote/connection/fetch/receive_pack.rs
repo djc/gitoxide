@@ -157,35 +157,49 @@ where
         };
         let mut write_pack_bundle = None;
 
-        let res = gix_protocol::fetch(
+        let consume_pack = |reader: &mut dyn std::io::BufRead,
+                            progress: &mut dyn gix_features::progress::DynNestedProgress,
+                            should_interrupt: &std::sync::atomic::AtomicBool|
+         -> Result<bool, gix_pack::bundle::write::Error> {
+            let mut may_read_to_end = false;
+            write_pack_bundle = if matches!(self.dry_run, fetch::DryRun::No) {
+                let res = gix_pack::Bundle::write_to_directory(
+                    reader,
+                    Some(&repo.objects.store_ref().path().join("pack")),
+                    progress,
+                    should_interrupt,
+                    Some(Box::new({
+                        let repo = repo.clone();
+                        repo.objects
+                    })),
+                    write_pack_options,
+                )?;
+                may_read_to_end = true;
+                Some(res)
+            } else {
+                None
+            };
+            Ok(may_read_to_end)
+        };
+        #[cfg(feature = "async-network-client")]
+        let res = gix_protocol::fetch_async(
             &mut negotiate,
-            |reader, progress, should_interrupt| -> Result<bool, gix_pack::bundle::write::Error> {
-                let mut may_read_to_end = false;
-                write_pack_bundle = if matches!(self.dry_run, fetch::DryRun::No) {
-                    let res = gix_pack::Bundle::write_to_directory(
-                        reader,
-                        Some(&repo.objects.store_ref().path().join("pack")),
-                        progress,
-                        should_interrupt,
-                        Some(Box::new({
-                            let repo = repo.clone();
-                            repo.objects
-                        })),
-                        write_pack_options,
-                    )?;
-                    may_read_to_end = true;
-                    Some(res)
-                } else {
-                    None
-                };
-                Ok(may_read_to_end)
-            },
+            consume_pack,
             progress,
             should_interrupt,
             context,
             fetch_options,
         )
         .await?;
+        #[cfg(feature = "blocking-network-client")]
+        let res = gix_protocol::fetch_blocking(
+            &mut negotiate,
+            consume_pack,
+            progress,
+            should_interrupt,
+            context,
+            fetch_options,
+        )?;
         let negotiate = res.map(|v| outcome::Negotiate {
             graph: graph.detach(),
             rounds: v.negotiate.rounds,
