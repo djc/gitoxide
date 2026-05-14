@@ -143,7 +143,8 @@ where
         if let Some(config) = self.transport_options.as_ref() {
             self.transport.inner.configure(&**config)?;
         }
-        let mut handshake = gix_protocol::handshake(
+        #[cfg(feature = "async-network-client")]
+        let mut handshake = gix_protocol::handshake_async(
             &mut self.transport.inner,
             gix_transport::Service::UploadPack,
             authenticate,
@@ -151,6 +152,14 @@ where
             &mut progress,
         )
         .await?;
+        #[cfg(feature = "blocking-network-client")]
+        let mut handshake = gix_protocol::handshake_blocking(
+            &mut self.transport.inner,
+            gix_transport::Service::UploadPack,
+            authenticate,
+            handshake_parameters,
+            &mut progress,
+        )?;
 
         let context = fetch::refmap::init::Context {
             fetch_refspecs: self.remote.fetch_specs.clone(),

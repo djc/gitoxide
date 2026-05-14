@@ -58,9 +58,12 @@ compile_error!("Cannot set both 'blocking-client' and 'async-client' features as
 
 ///
 pub mod handshake;
-#[cfg(any(feature = "blocking-client", feature = "async-client"))]
+#[cfg(feature = "async-client")]
 #[cfg(feature = "handshake")]
-pub use handshake::function::handshake;
+pub use handshake::function::handshake_async;
+#[cfg(feature = "blocking-client")]
+#[cfg(feature = "handshake")]
+pub use handshake::function::handshake_blocking;
 #[cfg(feature = "handshake")]
 pub use handshake::hero::Handshake;
 

@@ -89,12 +89,13 @@ mod fetch_fn {
         P: NestedProgress + 'static,
         P::SubProgress: 'static,
     {
+        #[cfg(feature = "async-client")]
         let gix_protocol::Handshake {
             server_protocol_version: protocol_version,
             refs,
             v1_shallow_updates: _ignored_shallow_updates_as_it_is_deprecated,
             capabilities,
-        } = gix_protocol::handshake(
+        } = gix_protocol::handshake_async(
             &mut transport,
             gix_transport::Service::UploadPack,
             authenticate,
@@ -102,6 +103,19 @@ mod fetch_fn {
             &mut progress,
         )
         .await?;
+        #[cfg(feature = "blocking-client")]
+        let gix_protocol::Handshake {
+            server_protocol_version: protocol_version,
+            refs,
+            v1_shallow_updates: _ignored_shallow_updates_as_it_is_deprecated,
+            capabilities,
+        } = gix_protocol::handshake_blocking(
+            &mut transport,
+            gix_transport::Service::UploadPack,
+            authenticate,
+            delegate.handshake_extra_parameters(),
+            &mut progress,
+        )?;
 
         let agent = gix_protocol::agent(agent);
         let refs = match refs {
