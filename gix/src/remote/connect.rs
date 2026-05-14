@@ -68,7 +68,7 @@ impl<'repo> Remote<'repo> {
             authenticate: None,
             transport_options: None,
             handshake: None,
-            transport: gix_protocol::SendFlushOnDrop::new(transport, trace),
+            transport: crate::remote::connection::SendFlushOnDrop::new(transport, trace),
             trace,
         }
     }

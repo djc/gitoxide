@@ -192,9 +192,12 @@ where
         });
 
         if matches!(handshake.server_protocol_version, gix_protocol::transport::Protocol::V2) {
-            gix_protocol::indicate_end_of_interaction(&mut con.transport.inner, con.trace)
+            #[cfg(feature = "async-network-client")]
+            gix_protocol::indicate_end_of_interaction_async(&mut con.transport.inner, con.trace)
                 .await
                 .ok();
+            #[cfg(feature = "blocking-network-client")]
+            gix_protocol::indicate_end_of_interaction_blocking(&mut con.transport.inner, con.trace).ok();
         }
 
         let update_refs = refs::update(

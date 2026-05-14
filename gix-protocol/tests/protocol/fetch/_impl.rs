@@ -15,8 +15,11 @@ mod fetch_fn {
     use gix_protocol::{
         Command, LsRefsCommand, credentials,
         fetch::{Arguments, Response},
-        indicate_end_of_interaction,
     };
+    #[cfg(feature = "async-client")]
+    use gix_protocol::indicate_end_of_interaction_async as indicate_end_of_interaction_compat;
+    #[cfg(feature = "blocking-client")]
+    use gix_protocol::indicate_end_of_interaction_blocking as indicate_end_of_interaction_compat;
     #[cfg(feature = "async-client")]
     use gix_transport::client::async_io::{ExtendedBufRead, HandleProgress, Transport};
     #[cfg(feature = "blocking-client")]
@@ -119,7 +122,7 @@ mod fetch_fn {
                     }
                 }
                 Err(err) => {
-                    indicate_end_of_interaction(transport, trace).await?;
+                    indicate_end_of_interaction_compat(transport, trace).await?;
                     return Err(err.into());
                 }
             },
@@ -132,7 +135,7 @@ mod fetch_fn {
                 return if matches!(protocol_version, gix_transport::Protocol::V1)
                     || matches!(fetch_mode, FetchConnection::TerminateOnSuccessfulCompletion)
                 {
-                    indicate_end_of_interaction(transport, trace).await.map_err(Into::into)
+                    indicate_end_of_interaction_compat(transport, trace).await.map_err(Into::into)
                 } else {
                     Ok(())
                 };
@@ -143,7 +146,7 @@ mod fetch_fn {
                     .expect("BUG: delegates must always produce valid arguments");
             }
             Err(err) => {
-                indicate_end_of_interaction(transport, trace).await?;
+                indicate_end_of_interaction_compat(transport, trace).await?;
                 return Err(err.into());
             }
         }
@@ -199,7 +202,7 @@ mod fetch_fn {
         if matches!(protocol_version, gix_transport::Protocol::V2)
             && matches!(fetch_mode, FetchConnection::TerminateOnSuccessfulCompletion)
         {
-            indicate_end_of_interaction(transport, trace).await?;
+            indicate_end_of_interaction_compat(transport, trace).await?;
         }
         Ok(())
     }

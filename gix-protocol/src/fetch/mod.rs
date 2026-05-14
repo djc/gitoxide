@@ -8,9 +8,10 @@
 ///     * [get available refs by refspecs](RefMap::fetch())
 /// * **fetch pack**
 ///     * `negotiate` until a pack can be received (TBD)
-/// * [officially terminate the connection](crate::indicate_end_of_interaction())
-///     - Consider wrapping the transport in [`SendFlushOnDrop`](crate::SendFlushOnDrop) to be sure the connection is terminated
-///       gracefully even if there is an application error.
+/// * officially terminate the connection (see `crate::indicate_end_of_interaction_async` /
+///   `crate::indicate_end_of_interaction_blocking`)
+///     - Consider wrapping the transport in `crate::AsyncSendFlushOnDrop` or `crate::BlockingSendFlushOnDrop` to be sure
+///       the connection is terminated gracefully even if there is an application error.
 ///
 /// Note that this flow doesn't involve actually writing the pack, or indexing it. Nor does it contain machinery
 /// to write or update references based on the fetched remote references.

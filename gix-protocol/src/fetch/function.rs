@@ -30,7 +30,7 @@ use crate::transport::client::blocking_io::{ExtendedBufRead, HandleProgress, Tra
 /// * …end the interaction after the fetch
 ///
 /// **Note that the interaction will never be ended**, even on error or failure, leaving it up to the caller to do that, maybe
-/// with the help of [`SendFlushOnDrop`](crate::SendFlushOnDrop) which can wrap `transport`.
+/// with the help of `crate::AsyncSendFlushOnDrop`/`crate::BlockingSendFlushOnDrop` which can wrap `transport`.
 /// Generally, the `transport` is left in a state that allows for more commands to be run.
 ///
 /// Return `Ok(None)` if there was nothing to do because all remote refs are at the same state as they are locally,
