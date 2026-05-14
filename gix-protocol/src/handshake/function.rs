@@ -91,10 +91,20 @@ where
                     ),
                     "Only V(0|1) auto-responds with refs"
                 );
-                Some(
-                    refs::from_v1_refs_received_as_part_of_handshake_and_capabilities(&mut refs, capabilities.iter())
-                        .await?,
-                )
+                Some({
+                    #[cfg(feature = "async-client")]
+                    let parsed = refs::from_v1_refs_received_as_part_of_handshake_and_capabilities_async(
+                        &mut refs,
+                        capabilities.iter(),
+                    )
+                    .await?;
+                    #[cfg(not(feature = "async-client"))]
+                    let parsed = refs::from_v1_refs_received_as_part_of_handshake_and_capabilities_blocking(
+                        &mut refs,
+                        capabilities.iter(),
+                    )?;
+                    parsed
+                })
             }
             None => None,
         };

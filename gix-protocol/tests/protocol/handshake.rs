@@ -22,7 +22,10 @@ unborn refs/heads/symbolic symref-target:refs/heads/target
             .as_bytes(),
     );
 
-    let out = refs::from_v2_refs(input).await.expect("no failure on valid input");
+    #[cfg(feature = "async-client")]
+    let out = refs::from_v2_refs_async(input).await.expect("no failure on valid input");
+    #[cfg(feature = "blocking-client")]
+    let out = refs::from_v2_refs_blocking(input).expect("no failure on valid input");
 
     assert_eq!(
         out,
@@ -79,7 +82,8 @@ dce0ea858eef7ff61ad345cc5cdac62203fb3c10 refs/tags/gix-commitgraph-v0.0.0
 21c9b7500cb144b3169a6537961ec2b9e865be81 refs/tags/gix-commitgraph-v0.0.0^{}"
             .as_bytes(),
     );
-    let (out, shallow) = refs::from_v1_refs_received_as_part_of_handshake_and_capabilities(
+    #[cfg(feature = "async-client")]
+    let (out, shallow) = refs::from_v1_refs_received_as_part_of_handshake_and_capabilities_async(
         input,
         Capabilities::from_bytes(b"\0symref=HEAD:refs/heads/main symref=MISSING_NAMESPACE_TARGET:(null)")
             .expect("valid capabilities")
@@ -87,6 +91,15 @@ dce0ea858eef7ff61ad345cc5cdac62203fb3c10 refs/tags/gix-commitgraph-v0.0.0
             .iter(),
     )
     .await
+    .expect("no failure from valid input");
+    #[cfg(feature = "blocking-client")]
+    let (out, shallow) = refs::from_v1_refs_received_as_part_of_handshake_and_capabilities_blocking(
+        input,
+        Capabilities::from_bytes(b"\0symref=HEAD:refs/heads/main symref=MISSING_NAMESPACE_TARGET:(null)")
+            .expect("valid capabilities")
+            .0
+            .iter(),
+    )
     .expect("no failure from valid input");
     assert!(shallow.is_empty());
     assert_eq!(
@@ -133,7 +146,8 @@ shallow 21c9b7500cb144b3169a6537961ec2b9e865be81
 shallow dce0ea858eef7ff61ad345cc5cdac62203fb3c10"
             .as_bytes(),
     );
-    let (out, shallow) = refs::from_v1_refs_received_as_part_of_handshake_and_capabilities(
+    #[cfg(feature = "async-client")]
+    let (out, shallow) = refs::from_v1_refs_received_as_part_of_handshake_and_capabilities_async(
         input,
         Capabilities::from_bytes(b"\0symref=HEAD:refs/heads/main symref=MISSING_NAMESPACE_TARGET:(null)")
             .expect("valid capabilities")
@@ -141,6 +155,15 @@ shallow dce0ea858eef7ff61ad345cc5cdac62203fb3c10"
             .iter(),
     )
     .await
+    .expect("no failure from valid input");
+    #[cfg(feature = "blocking-client")]
+    let (out, shallow) = refs::from_v1_refs_received_as_part_of_handshake_and_capabilities_blocking(
+        input,
+        Capabilities::from_bytes(b"\0symref=HEAD:refs/heads/main symref=MISSING_NAMESPACE_TARGET:(null)")
+            .expect("valid capabilities")
+            .0
+            .iter(),
+    )
     .expect("no failure from valid input");
 
     assert_eq!(

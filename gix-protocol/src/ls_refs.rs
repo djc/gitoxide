@@ -45,10 +45,11 @@ pub(crate) mod function {
     use crate::transport::client::async_io::{self, TransportV2Ext as _};
     #[cfg(feature = "blocking-client")]
     use crate::transport::client::blocking_io::{self, TransportV2Ext as _};
-    use crate::{
-        Command,
-        handshake::{Ref, refs::from_v2_refs},
-    };
+    use crate::{Command, handshake::Ref};
+    #[cfg(feature = "async-client")]
+    use crate::handshake::refs::from_v2_refs_async;
+    #[cfg(feature = "blocking-client")]
+    use crate::handshake::refs::from_v2_refs_blocking;
 
     /// [`RefPrefixes`] are the set of prefixes that are sent to the server for
     /// filtering purposes.
@@ -200,7 +201,7 @@ pub(crate) mod function {
                     trace,
                 )
                 .await?;
-            Ok(from_v2_refs(&mut remote_refs).await?)
+            Ok(from_v2_refs_async(&mut remote_refs).await?)
         }
 
         /// Invoke a ls-refs V2 command on `transport`.
@@ -234,7 +235,7 @@ pub(crate) mod function {
                 },
                 trace,
             )?;
-            Ok(from_v2_refs(&mut remote_refs)?)
+            Ok(from_v2_refs_blocking(&mut remote_refs)?)
         }
     }
 

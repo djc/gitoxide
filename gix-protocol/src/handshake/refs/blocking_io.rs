@@ -5,7 +5,7 @@ use crate::{
 };
 
 /// Parse refs from the given input line by line. Protocol V2 is required for this to succeed.
-pub fn from_v2_refs(in_refs: &mut dyn ReadlineBufRead) -> Result<Vec<Ref>, Error> {
+pub fn from_v2_refs_blocking(in_refs: &mut dyn ReadlineBufRead) -> Result<Vec<Ref>, Error> {
     let mut out_refs = Vec::new();
     while let Some(line) = in_refs.readline().transpose()?.transpose()?.and_then(|l| l.as_bstr()) {
         out_refs.push(refs::shared::parse_v2(line)?);
@@ -21,7 +21,7 @@ pub fn from_v2_refs(in_refs: &mut dyn ReadlineBufRead) -> Result<Vec<Ref>, Error
 ///
 /// Symbolic refs are shoe-horned into server capabilities whereas refs (without symbolic ones) are sent automatically as
 /// part of the handshake. Both symbolic and peeled refs need to be combined to fit into the [`Ref`] type provided here.
-pub fn from_v1_refs_received_as_part_of_handshake_and_capabilities<'a>(
+pub fn from_v1_refs_received_as_part_of_handshake_and_capabilities_blocking<'a>(
     in_refs: &mut dyn ReadlineBufRead,
     capabilities: impl Iterator<Item = gix_transport::client::capabilities::Capability<'a>>,
 ) -> Result<(Vec<Ref>, Vec<ShallowUpdate>), Error> {

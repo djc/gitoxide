@@ -68,9 +68,9 @@ pub(crate) mod shared;
 #[cfg(feature = "async-client")]
 mod async_io;
 #[cfg(feature = "async-client")]
-pub use async_io::{from_v1_refs_received_as_part_of_handshake_and_capabilities, from_v2_refs};
+pub use async_io::{from_v1_refs_received_as_part_of_handshake_and_capabilities_async, from_v2_refs_async};
 
 #[cfg(feature = "blocking-client")]
 mod blocking_io;
 #[cfg(feature = "blocking-client")]
-pub use blocking_io::{from_v1_refs_received_as_part_of_handshake_and_capabilities, from_v2_refs};
+pub use blocking_io::{from_v1_refs_received_as_part_of_handshake_and_capabilities_blocking, from_v2_refs_blocking};
