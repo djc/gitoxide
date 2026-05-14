@@ -196,7 +196,10 @@ mod v1 {
                 gix_transport::client::git::ConnectMode::Daemon,
             );
 
-            let _response = args.send(&mut transport, true).await?;
+            #[cfg(feature = "async-client")]
+            let _response = args.send_async(&mut transport, true).await?;
+            #[cfg(feature = "blocking-client")]
+            let _response = args.send_blocking(&mut transport, true)?;
             drop(_response);
             assert_eq!(
                 out.as_slice().as_bstr(),
@@ -431,7 +434,10 @@ mod v2 {
                 gix_transport::client::git::ConnectMode::Daemon,
             );
 
-            let _response = args.send(&mut transport, true).await?;
+            #[cfg(feature = "async-client")]
+            let _response = args.send_async(&mut transport, true).await?;
+            #[cfg(feature = "blocking-client")]
+            let _response = args.send_blocking(&mut transport, true)?;
             drop(_response);
             assert_eq!(out.as_slice().as_bstr(), "0012command=fetch\n0001000ethin-pack\n000eofs-delta\n0035shallow 97c5a932b3940a09683e924ef6a92b31a6f7c6de\n000ddeepen 1\n0014deepen-relative\n0018deepen-since 123456\n0013deepen-not tag\n0032want aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 0032have bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n0009done\n0000");

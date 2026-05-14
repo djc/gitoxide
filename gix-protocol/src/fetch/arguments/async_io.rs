@@ -8,7 +8,7 @@ use crate::{Command, fetch::Arguments};
 
 impl Arguments {
     /// Send fetch arguments to the server, and indicate this is the end of negotiations only if `add_done_argument` is present.
-    pub async fn send<'a, T: Transport + 'a>(
+    pub async fn send_async<'a, T: Transport + 'a>(
         &mut self,
         transport: &'a mut T,
         add_done_argument: bool,

@@ -175,7 +175,10 @@ mod v1 {
 
         arguments.use_include_tag();
         arguments.want(id("ff333369de1221f9bfbbe03a3a13e9a09bc1ffff"));
-        arguments.send(&mut t, true).await.expect("sending to buffer to work");
+        #[cfg(feature = "async-client")]
+        arguments.send_async(&mut t, true).await.expect("sending to buffer to work");
+        #[cfg(feature = "blocking-client")]
+        arguments.send_blocking(&mut t, true).expect("sending to buffer to work");
         assert_eq!(
             out.as_bstr(),
             b"0048want ff333369de1221f9bfbbe03a3a13e9a09bc1ffff feature-b include-tag
@@ -193,7 +196,10 @@ mod v1 {
         assert!(arguments.can_use_include_tag());
 
         arguments.want(id("ff333369de1221f9bfbbe03a3a13e9a09bc1ffff"));
-        arguments.send(&mut t, true).await.expect("sending to buffer to work");
+        #[cfg(feature = "async-client")]
+        arguments.send_async(&mut t, true).await.expect("sending to buffer to work");
+        #[cfg(feature = "blocking-client")]
+        arguments.send_blocking(&mut t, true).expect("sending to buffer to work");
         assert_eq!(
             out.as_bstr(),
             b"003cwant ff333369de1221f9bfbbe03a3a13e9a09bc1ffff feature-b
@@ -216,7 +222,10 @@ mod v1 {
 
         arguments.want(id("7b333369de1221f9bfbbe03a3a13e9a09bc1c907"));
         arguments.want(id("ff333369de1221f9bfbbe03a3a13e9a09bc1ffff"));
-        arguments.send(&mut t, true).await.expect("sending to buffer to work");
+        #[cfg(feature = "async-client")]
+        arguments.send_async(&mut t, true).await.expect("sending to buffer to work");
+        #[cfg(feature = "blocking-client")]
+        arguments.send_blocking(&mut t, true).expect("sending to buffer to work");
         assert_eq!(
             out.as_bstr(),
             b"0046want 7b333369de1221f9bfbbe03a3a13e9a09bc1c907 feature-a feature-b
@@ -239,10 +248,16 @@ mod v1 {
         arguments.deepen_since(12345);
         arguments.deepen_not("refs/heads/main".into());
         arguments.have(id("0000000000000000000000000000000000000000"));
-        arguments.send(&mut t, false).await.expect("sending to buffer to work");
+        #[cfg(feature = "async-client")]
+        arguments.send_async(&mut t, false).await.expect("sending to buffer to work");
+        #[cfg(feature = "blocking-client")]
+        arguments.send_blocking(&mut t, false).expect("sending to buffer to work");
 
         arguments.have(id("1111111111111111111111111111111111111111"));
-        arguments.send(&mut t, true).await.expect("sending to buffer to work");
+        #[cfg(feature = "async-client")]
+        arguments.send_async(&mut t, true).await.expect("sending to buffer to work");
+        #[cfg(feature = "blocking-client")]
+        arguments.send_blocking(&mut t, true).expect("sending to buffer to work");
         assert_eq!(
             out.as_bstr(),
             b"005cwant 7b333369de1221f9bfbbe03a3a13e9a09bc1c907 feature-a shallow deepen-since deepen-not
@@ -272,10 +287,16 @@ mod v1 {
         arguments.deepen(1);
         arguments.want(id("7b333369de1221f9bfbbe03a3a13e9a09bc1c907"));
         arguments.have(id("0000000000000000000000000000000000000000"));
-        arguments.send(&mut t, false).await.expect("sending to buffer to work");
+        #[cfg(feature = "async-client")]
+        arguments.send_async(&mut t, false).await.expect("sending to buffer to work");
+        #[cfg(feature = "blocking-client")]
+        arguments.send_blocking(&mut t, false).expect("sending to buffer to work");
 
         arguments.have(id("1111111111111111111111111111111111111111"));
-        arguments.send(&mut t, true).await.expect("sending to buffer to work");
+        #[cfg(feature = "async-client")]
+        arguments.send_async(&mut t, true).await.expect("sending to buffer to work");
+        #[cfg(feature = "blocking-client")]
+        arguments.send_blocking(&mut t, true).expect("sending to buffer to work");
         assert_eq!(
             out.as_bstr(),
             b"0044want 7b333369de1221f9bfbbe03a3a13e9a09bc1c907 feature-a shallow
@@ -303,7 +324,10 @@ mod v2 {
         arguments.use_include_tag();
 
         arguments.want(id("ff333369de1221f9bfbbe03a3a13e9a09bc1ffff"));
-        arguments.send(&mut t, true).await.expect("sending to buffer to work");
+        #[cfg(feature = "async-client")]
+        arguments.send_async(&mut t, true).await.expect("sending to buffer to work");
+        #[cfg(feature = "blocking-client")]
+        arguments.send_blocking(&mut t, true).expect("sending to buffer to work");
         assert_eq!(
             out.as_bstr(),
             b"0012command=fetch
@@ -331,7 +355,10 @@ mod v2 {
         arguments.deepen_relative();
         arguments.want(id("7b333369de1221f9bfbbe03a3a13e9a09bc1c907"));
         arguments.want(id("ff333369de1221f9bfbbe03a3a13e9a09bc1ffff"));
-        arguments.send(&mut t, true).await.expect("sending to buffer to work");
+        #[cfg(feature = "async-client")]
+        arguments.send_async(&mut t, true).await.expect("sending to buffer to work");
+        #[cfg(feature = "blocking-client")]
+        arguments.send_blocking(&mut t, true).expect("sending to buffer to work");
         assert_eq!(
             out.as_bstr(),
             b"0012command=fetch
@@ -363,10 +390,16 @@ mod v2 {
             arguments.want(id("7b333369de1221f9bfbbe03a3a13e9a09bc1c907"));
             arguments.deepen_not("refs/heads/main".into());
             arguments.have(id("0000000000000000000000000000000000000000"));
-            arguments.send(&mut t, false).await.expect("sending to buffer to work");
+            #[cfg(feature = "async-client")]
+            arguments.send_async(&mut t, false).await.expect("sending to buffer to work");
+            #[cfg(feature = "blocking-client")]
+            arguments.send_blocking(&mut t, false).expect("sending to buffer to work");
 
             arguments.have(id("1111111111111111111111111111111111111111"));
-            arguments.send(&mut t, true).await.expect("sending to buffer to work");
+            #[cfg(feature = "async-client")]
+            arguments.send_async(&mut t, true).await.expect("sending to buffer to work");
+            #[cfg(feature = "blocking-client")]
+            arguments.send_blocking(&mut t, true).expect("sending to buffer to work");
             assert_eq!(
                 out.as_bstr(),
                 b"0012command=fetch
@@ -404,7 +437,10 @@ mod v2 {
         let mut arguments = arguments_v2(["ref-in-want"].iter().copied());
 
         arguments.want_ref(b"refs/heads/main".as_bstr());
-        arguments.send(&mut t, true).await.expect("sending to buffer to work");
+        #[cfg(feature = "async-client")]
+        arguments.send_async(&mut t, true).await.expect("sending to buffer to work");
+        #[cfg(feature = "blocking-client")]
+        arguments.send_blocking(&mut t, true).expect("sending to buffer to work");
         assert_eq!(
             out.as_bstr(),
             b"0012command=fetch

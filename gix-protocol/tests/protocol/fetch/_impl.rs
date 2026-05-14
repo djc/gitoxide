@@ -159,7 +159,10 @@ mod fetch_fn {
             progress.set_name(format!("negotiate (round {round})"));
             round += 1;
             let action = delegate.negotiate(&refs, &mut arguments, previous_response.as_ref())?;
-            let mut reader = arguments.send(&mut transport, action == Action::Cancel).await?;
+            #[cfg(feature = "async-client")]
+            let mut reader = arguments.send_async(&mut transport, action == Action::Cancel).await?;
+            #[cfg(not(feature = "async-client"))]
+            let mut reader = arguments.send_blocking(&mut transport, action == Action::Cancel)?;
             if sideband_all {
                 setup_remote_progress(&mut progress, &mut reader);
             }

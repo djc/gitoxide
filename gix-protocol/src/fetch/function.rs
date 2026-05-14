@@ -123,7 +123,10 @@ where
                         return Err(err.into());
                     }
                 };
-                let mut reader = arguments.send(transport, is_done).await?;
+                #[cfg(feature = "async-client")]
+                let mut reader = arguments.send_async(transport, is_done).await?;
+                #[cfg(not(feature = "async-client"))]
+                let mut reader = arguments.send_blocking(transport, is_done)?;
                 if sideband_all {
                     setup_remote_progress(&mut progress, &mut reader, should_interrupt);
                 }
