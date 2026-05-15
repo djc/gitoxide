@@ -24,7 +24,6 @@ mod fetch_fn {
     use gix_transport::client::async_io::{ExtendedBufRead, HandleProgress, Transport};
     #[cfg(feature = "blocking-client")]
     use gix_transport::client::blocking_io::{ExtendedBufRead, HandleProgress, Transport};
-    use maybe_async::maybe_async;
     use std::borrow::Cow;
     use std::ops::ControlFlow;
 
@@ -70,10 +69,161 @@ mod fetch_fn {
     ///
     /// As it will hang when having multiple negotiation rounds.
     #[allow(clippy::result_large_err)]
-    #[maybe_async]
+    #[cfg(feature = "blocking-client")]
     // TODO: remove this without losing test coverage - we have the same but better in `gix` and it's
     //       not really worth it to maintain the delegates here.
-    pub async fn legacy_fetch<F, D, T, P>(
+    pub fn legacy_fetch_blocking<F, D, T, P>(
+        mut transport: T,
+        mut delegate: D,
+        authenticate: F,
+        mut progress: P,
+        fetch_mode: FetchConnection,
+        agent: impl Into<String>,
+        trace: bool,
+    ) -> Result<(), Error>
+    where
+        F: FnMut(credentials::helper::Action) -> credentials::protocol::Result,
+        D: Delegate,
+        T: Transport,
+        P: NestedProgress + 'static,
+        P::SubProgress: 'static,
+    {
+        #[cfg(feature = "async-client")]
+        let gix_protocol::Handshake {
+            server_protocol_version: protocol_version,
+            refs,
+            v1_shallow_updates: _ignored_shallow_updates_as_it_is_deprecated,
+            capabilities,
+        } = gix_protocol::handshake_async(
+            &mut transport,
+            gix_transport::Service::UploadPack,
+            authenticate,
+            delegate.handshake_extra_parameters(),
+            &mut progress,
+        )
+        ?;
+        #[cfg(feature = "blocking-client")]
+        let gix_protocol::Handshake {
+            server_protocol_version: protocol_version,
+            refs,
+            v1_shallow_updates: _ignored_shallow_updates_as_it_is_deprecated,
+            capabilities,
+        } = gix_protocol::handshake_blocking(
+            &mut transport,
+            gix_transport::Service::UploadPack,
+            authenticate,
+            delegate.handshake_extra_parameters(),
+            &mut progress,
+        )?;
+
+        let agent = gix_protocol::agent(agent);
+        let refs = match refs {
+            Some(refs) => refs,
+            None => match delegate.action() {
+                Ok(RefsAction::Skip) => Vec::new(),
+                Ok(RefsAction::Continue) => {
+                    #[cfg(feature = "async-client")]
+                    {
+                        LsRefsCommand::new(None, &capabilities, ("agent", Some(Cow::Owned(agent.clone()))))
+                            .invoke_async(&mut transport, &mut progress, trace)
+                            ?
+                    }
+                    #[cfg(feature = "blocking-client")]
+                    {
+                        LsRefsCommand::new(None, &capabilities, ("agent", Some(Cow::Owned(agent.clone()))))
+                            .invoke_blocking(&mut transport, &mut progress, trace)?
+                    }
+                }
+                Err(err) => {
+                    indicate_end_of_interaction_compat(transport, trace)?;
+                    return Err(err.into());
+                }
+            },
+        };
+
+        let fetch = Command::Fetch;
+        let mut fetch_features = fetch.default_features(protocol_version, &capabilities);
+        match delegate.prepare_fetch(protocol_version, &capabilities, &mut fetch_features, &refs) {
+            Ok(Action::Cancel) => {
+                return if matches!(protocol_version, gix_transport::Protocol::V1)
+                    || matches!(fetch_mode, FetchConnection::TerminateOnSuccessfulCompletion)
+                {
+                    indicate_end_of_interaction_compat(transport, trace).map_err(Into::into)
+                } else {
+                    Ok(())
+                };
+            }
+            Ok(Action::Continue) => {
+                fetch
+                    .validate_argument_prefixes(protocol_version, &capabilities, &[], &fetch_features)
+                    .expect("BUG: delegates must always produce valid arguments");
+            }
+            Err(err) => {
+                indicate_end_of_interaction_compat(transport, trace)?;
+                return Err(err.into());
+            }
+        }
+
+        Response::check_required_features(protocol_version, &fetch_features)?;
+        let sideband_all = fetch_features.iter().any(|(n, _)| *n == "sideband-all");
+        fetch_features.push(("agent", Some(Cow::Owned(agent))));
+        let mut arguments = Arguments::new(protocol_version, fetch_features, trace);
+        let mut previous_response = None::<Response>;
+        let mut round = 1;
+        'negotiation: loop {
+            progress.step();
+            progress.set_name(format!("negotiate (round {round})"));
+            round += 1;
+            let action = delegate.negotiate(&refs, &mut arguments, previous_response.as_ref())?;
+            #[cfg(feature = "async-client")]
+            let mut reader = arguments.send_async(&mut transport, action == Action::Cancel)?;
+            #[cfg(not(feature = "async-client"))]
+            let mut reader = arguments.send_blocking(&mut transport, action == Action::Cancel)?;
+            if sideband_all {
+                setup_remote_progress(&mut progress, &mut reader);
+            }
+            #[cfg(feature = "async-client")]
+            let response = Response::from_line_reader_async(
+                protocol_version,
+                &mut reader,
+                true,  /* hack, telling us we don't want this delegate approach anymore */
+                false, /* just as much of a hack which causes us to expect a pack immediately */
+            )
+            ?;
+            #[cfg(feature = "blocking-client")]
+            let response = Response::from_line_reader_blocking(
+                protocol_version,
+                &mut reader,
+                true,  /* hack, telling us we don't want this delegate approach anymore */
+                false, /* just as much of a hack which causes us to expect a pack immediately */
+            )?;
+            previous_response = if response.has_pack() {
+                progress.step();
+                progress.set_name("receiving pack".into());
+                if !sideband_all {
+                    setup_remote_progress(&mut progress, &mut reader);
+                }
+                delegate.receive_pack(reader, progress, &refs, &response)?;
+                break 'negotiation;
+            } else {
+                match action {
+                    Action::Cancel => break 'negotiation,
+                    Action::Continue => Some(response),
+                }
+            }
+        }
+        if matches!(protocol_version, gix_transport::Protocol::V2)
+            && matches!(fetch_mode, FetchConnection::TerminateOnSuccessfulCompletion)
+        {
+            indicate_end_of_interaction_compat(transport, trace)?;
+        }
+        Ok(())
+    }
+
+    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+    // TODO: remove this without losing test coverage - we have the same but better in `gix` and it's
+    //       not really worth it to maintain the delegates here.
+    pub async fn legacy_fetch_async<F, D, T, P>(
         mut transport: T,
         mut delegate: D,
         authenticate: F,
@@ -235,7 +385,10 @@ mod fetch_fn {
         }) as HandleProgress<'a>));
     }
 }
-pub use fetch_fn::{FetchConnection, legacy_fetch as fetch};
+#[cfg(feature = "blocking-client")]
+pub use fetch_fn::{FetchConnection, legacy_fetch_blocking as fetch};
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+pub use fetch_fn::{FetchConnection, legacy_fetch_async as fetch};
 
 mod delegate {
     use std::{

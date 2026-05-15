@@ -34,7 +34,56 @@ mod refs_impl {
         pub(crate) use super::{print, print_ref};
     }
 
-    #[gix::protocol::maybe_async::maybe_async]
+    #[cfg(feature = "blocking-client")]
+    pub fn refs_fn(
+        repo: gix::Repository,
+        kind: refs::Kind,
+        mut progress: impl gix::Progress,
+        out: impl std::io::Write,
+        err: impl std::io::Write,
+        refs::Options {
+            format,
+            name_or_url,
+            handshake_info,
+        }: refs::Options,
+    ) -> anyhow::Result<()> {
+        use anyhow::Context;
+        let mut remote = by_name_or_url(&repo, name_or_url.as_deref())?;
+        let show_unmapped = if let refs::Kind::Tracking {
+            ref_specs,
+            show_unmapped_remote_refs,
+        } = &kind
+        {
+            if format != OutputFormat::Human {
+                bail!("JSON output isn't yet supported for listing ref-mappings.");
+            }
+            if !ref_specs.is_empty() {
+                remote.replace_refspecs(ref_specs.iter(), gix::remote::Direction::Fetch)?;
+                remote = remote.with_fetch_tags(gix::remote::fetch::Tags::None);
+            }
+            *show_unmapped_remote_refs
+        } else {
+            false
+        };
+        progress.info(format!(
+            "Connecting to {:?}",
+            remote
+                .url(gix::remote::Direction::Fetch)
+                .context("Remote didn't have a URL to connect to")?
+                .to_bstring()
+        ));
+        let connection = remote.connect_blocking(gix::remote::Direction::Fetch)?;
+        let (map, handshake) = connection.ref_map(
+            &mut progress,
+            gix::remote::ref_map::Options {
+                prefix_from_spec_as_filter_on_remote: !matches!(kind, refs::Kind::Remote),
+                ..Default::default()
+            },
+        )?;
+        finish_refs(&repo, &remote, map, handshake, kind, show_unmapped, handshake_info, format, out, err)
+    }
+
+    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
     pub async fn refs_fn(
         repo: gix::Repository,
         kind: refs::Kind,
@@ -72,9 +121,6 @@ mod refs_impl {
                 .context("Remote didn't have a URL to connect to")?
                 .to_bstring()
         ));
-        #[cfg(feature = "blocking-client")]
-        let connection = remote.connect_blocking(gix::remote::Direction::Fetch)?;
-        #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
         let connection = remote.connect_async(gix::remote::Direction::Fetch).await?;
         let (map, handshake) = connection
             .ref_map(
@@ -85,14 +131,29 @@ mod refs_impl {
                 },
             )
             .await?;
+        finish_refs(&repo, &remote, map, handshake, kind, show_unmapped, handshake_info, format, out, err)
+    }
 
+    #[cfg(any(feature = "blocking-client", feature = "async-client"))]
+    fn finish_refs(
+        repo: &gix::Repository,
+        remote: &gix::Remote<'_>,
+        map: gix::remote::fetch::RefMap,
+        handshake: gix::protocol::Handshake,
+        kind: refs::Kind,
+        show_unmapped: bool,
+        handshake_info: bool,
+        format: OutputFormat,
+        mut out: impl std::io::Write,
+        err: impl std::io::Write,
+    ) -> anyhow::Result<()> {
         if handshake_info {
             writeln!(out, "Handshake Information")?;
             writeln!(out, "\t{handshake:?}")?;
         }
         match kind {
             refs::Kind::Tracking { .. } => print_refmap(
-                &repo,
+                repo,
                 remote.refspecs(gix::remote::Direction::Fetch),
                 map,
                 show_unmapped,

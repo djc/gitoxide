@@ -53,7 +53,7 @@ mod blocking_io {
                 }
             })
             .with_shallow(Shallow::DepthAtRemote(2.try_into().expect("non-zero")));
-        let (repo, _out) = prepare.fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+        let (repo, _out) = prepare.fetch_only_blocking(gix::progress::Discard, &AtomicBool::default())?;
         drop(prepare);
 
         assert_eq!(
@@ -98,7 +98,7 @@ mod blocking_io {
         let tmp = gix_testtools::tempfile::TempDir::new()?;
         let (repo, _out) = gix::prepare_clone_bare(remote::repo("base").path(), tmp.path())?
             .with_shallow(Shallow::DepthAtRemote(1.try_into()?))
-            .fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+            .fetch_only_blocking(gix::progress::Discard, &AtomicBool::default())?;
 
         assert!(repo.is_shallow(), "repository should be shallow");
 
@@ -132,7 +132,7 @@ mod blocking_io {
             Default::default(),
             gix::open::Options::isolated().config_overrides([Clone::REJECT_SHALLOW.validated_assignment_fmt(&true)?]),
         )?
-        .fetch_only(gix::progress::Discard, &AtomicBool::default())
+        .fetch_only_blocking(gix::progress::Discard, &AtomicBool::default())
         .unwrap_err();
         assert!(
             matches!(
@@ -151,7 +151,7 @@ mod blocking_io {
         let tmp = gix_testtools::tempfile::TempDir::new()?;
         let (repo, _change) = gix::prepare_clone_bare(remote::repo("base.shallow").path(), tmp.path())?
             .with_in_memory_config_overrides(Some("my.marker=1"))
-            .fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+            .fetch_only_blocking(gix::progress::Discard, &AtomicBool::default())?;
         assert_eq!(
             shallow_ids(&repo, "present")?,
             vec![
@@ -184,7 +184,7 @@ mod blocking_io {
                 r.replace_refspecs(Some("refs/heads/main:refs/remotes/origin/main"), Direction::Fetch)?;
                 Ok(r)
             })
-            .fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+            .fetch_only_blocking(gix::progress::Discard, &AtomicBool::default())?;
 
         assert!(repo.is_shallow());
         assert_eq!(
@@ -257,7 +257,7 @@ mod blocking_io {
                     .collect(),
                 since_cutoff: None,
             })
-            .fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+            .fetch_only_blocking(gix::progress::Discard, &AtomicBool::default())?;
 
         assert!(repo.is_shallow());
         assert_eq!(
@@ -307,7 +307,7 @@ mod blocking_io {
                 Ok(r)
             }
         });
-        let (repo, out) = prepare.fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+        let (repo, out) = prepare.fetch_only_blocking(gix::progress::Discard, &AtomicBool::default())?;
         drop(prepare);
 
         assert!(
@@ -922,7 +922,7 @@ mod blocking_io {
             Default::default(),
             restricted(),
         )?
-        .fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+        .fetch_only_blocking(gix::progress::Discard, &AtomicBool::default())?;
         assert!(repo.find_remote("origin").is_ok(), "default remote name is 'origin'");
         match out.status {
             gix::remote::fetch::Status::Change { write_pack_bundle, .. } => {

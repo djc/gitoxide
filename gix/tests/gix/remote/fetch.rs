@@ -19,7 +19,7 @@ mod blocking_and_async_io {
         remote::{Direction::Fetch, fetch, fetch::Status},
     };
     use gix_features::progress;
-    use gix_protocol::maybe_async;
+    
     use gix_testtools::tempfile::TempDir;
 
     use crate::{
@@ -159,7 +159,7 @@ mod blocking_and_async_io {
                 Default::default(),
                 gix::open::Options::isolated().object_store_slots(Slots::Given(max_packs)),
             )?
-            .fetch_only(gix::progress::Discard, &IS_INTERRUPTED)?;
+            .fetch_only_blocking(gix::progress::Discard, &IS_INTERRUPTED)?;
 
             let remote = local_repo
                 .branch_remote(
@@ -253,7 +253,7 @@ mod blocking_and_async_io {
                 Ok(r)
             }
         })
-        .fetch_only(gix::progress::Discard, &AtomicBool::default())?;
+        .fetch_only_blocking(gix::progress::Discard, &AtomicBool::default())?;
 
         match out.status {
             Status::Change {
@@ -300,7 +300,7 @@ mod blocking_and_async_io {
                         ),
                         tmp.path(),
                     )?
-                    .fetch_only(gix::progress::Discard, &std::sync::atomic::AtomicBool::default())
+                    .fetch_only_blocking(gix::progress::Discard, &std::sync::atomic::AtomicBool::default())
                     .await?
                     .0;
                     (repo, tmp)

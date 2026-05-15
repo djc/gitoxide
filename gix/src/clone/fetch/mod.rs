@@ -70,8 +70,253 @@ impl PrepareFetch {
     ///
     /// Even though `async` is technically supported, it will still be blocking in nature as it uses a lot of non-async writes
     /// and computation under the hood. Thus it should be spawned into a runtime which can handle blocking futures.
-    #[gix_protocol::maybe_async::maybe_async]
-    pub async fn fetch_only<P>(
+    #[cfg(feature = "blocking-network-client")]
+    pub fn fetch_only_blocking<P>(
+        &mut self,
+        mut progress: P,
+        should_interrupt: &std::sync::atomic::AtomicBool,
+    ) -> Result<(crate::Repository, crate::remote::fetch::Outcome), Error>
+    where
+        P: crate::NestedProgress,
+        P::SubProgress: 'static,
+    {
+        use crate::{bstr::ByteVec, remote, remote::fetch::RefLogMessage};
+
+        let repo = self
+            .repo
+            .as_mut()
+            .expect("user error: multiple calls are allowed only until it succeeds");
+
+        repo.committer_or_set_generic_fallback()?;
+
+        if !self.config_overrides.is_empty() {
+            let mut snapshot = repo.config_snapshot_mut();
+            snapshot.append_config(&self.config_overrides, gix_config::Source::Api)?;
+        }
+
+        let remote_name = match self.remote_name.as_ref() {
+            Some(name) => name.to_owned(),
+            None => repo
+                .config
+                .resolved
+                .string(crate::config::tree::Clone::DEFAULT_REMOTE_NAME)
+                .map(|n| crate::config::tree::Clone::DEFAULT_REMOTE_NAME.try_into_symbolic_name(n))
+                .transpose()?
+                .unwrap_or_else(|| "origin".into()),
+        };
+
+        let mut remote = repo.remote_at(self.url.clone())?;
+
+        // For shallow clones without custom configuration, we'll use a single-branch refspec
+        // to match git's behavior (matching git's single-branch behavior for shallow clones).
+        let use_single_branch_for_shallow = self.shallow != remote::fetch::Shallow::NoChange
+            && remote.fetch_specs.is_empty()
+            && self.fetch_options.extra_refspecs.is_empty();
+
+        let target_ref = if use_single_branch_for_shallow {
+            // Determine target branch from user-specified ref_name or default branch
+            if let Some(ref_name) = &self.ref_name {
+                Some(Category::LocalBranch.to_full_name(ref_name.as_ref().as_bstr())?)
+            } else {
+                // For shallow clones without a specified ref, we need to determine the ref to clone.
+                // Just fetch HEAD for that.
+                let prev_tags = std::mem::replace(&mut remote.fetch_tags, remote::fetch::Tags::None);
+                #[cfg(feature = "blocking-network-client")]
+                let mut connection = remote.connect_blocking(remote::Direction::Fetch)?;
+                #[cfg(all(feature = "async-network-client", not(feature = "blocking-network-client")))]
+                let mut connection = remote.connect_async(remote::Direction::Fetch)?;
+                if let Some(f) = self.configure_connection.as_mut() {
+                    f(&mut connection).map_err(Error::RemoteConnection)?;
+                }
+                let refmap = connection
+                    .ref_map_by_ref(
+                        &mut progress,
+                        remote::ref_map::Options {
+                            extra_refspecs: vec![
+                                gix_refspec::parse("HEAD".into(), gix_refspec::parse::Operation::Fetch)
+                                    .expect("valid")
+                                    .to_owned(),
+                            ],
+                            ..Default::default()
+                        },
+                    )
+                    ?;
+
+                // Find HEAD in the remote refs (works for both Protocol V1 and V2)
+                let target = refmap
+                    .remote_refs
+                    .iter()
+                    .find_map(|r| match r {
+                        gix_protocol::handshake::Ref::Symbolic {
+                            full_ref_name, target, ..
+                        }
+                        | gix_protocol::handshake::Ref::Unborn {
+                            full_ref_name, target, ..
+                        } if full_ref_name == "HEAD" => gix_ref::FullName::try_from(target)
+                            .map_err(|err| Error::InvalidHeadRef {
+                                head_ref_name: target.clone(),
+                                source: err,
+                            })
+                            .into(),
+                        _ => None,
+                    })
+                    .transpose()?;
+
+                let target = target.ok_or_else(|| Error::RefNameMissing {
+                    wanted: "HEAD".try_into().expect("valid partial name"),
+                })?;
+
+                drop(connection);
+                remote.fetch_tags = prev_tags;
+
+                Some(target)
+            }
+        } else {
+            None
+        };
+
+        // Set up refspec based on whether we're doing a single-branch shallow clone,
+        // which requires a single ref to match Git unless it's overridden.
+        if remote.fetch_specs.is_empty() {
+            if let Some(target_ref) = &target_ref {
+                // Single-branch refspec for shallow clones
+                let short_name = target_ref.shorten();
+                remote = remote
+                    .with_refspecs(
+                        Some(format!("+{target_ref}:refs/remotes/{remote_name}/{short_name}").as_str()),
+                        remote::Direction::Fetch,
+                    )
+                    .expect("valid refspec");
+            } else {
+                // Wildcard refspec for non-shallow clones or when target couldn't be determined
+                remote = remote
+                    .with_refspecs(
+                        Some(format!("+refs/heads/*:refs/remotes/{remote_name}/*").as_str()),
+                        remote::Direction::Fetch,
+                    )
+                    .expect("valid static spec");
+            }
+        }
+
+        let mut clone_fetch_tags = None;
+        if let Some(f) = self.configure_remote.as_mut() {
+            remote = f(remote).map_err(Error::RemoteConfiguration)?;
+        } else {
+            clone_fetch_tags = remote::fetch::Tags::All.into();
+        }
+
+        let config = util::write_remote_to_local_config_file(&mut remote, remote_name.clone())?;
+
+        // Now we are free to apply remote configuration we don't want to be written to disk.
+        if let Some(fetch_tags) = clone_fetch_tags {
+            remote = remote.with_fetch_tags(fetch_tags);
+        }
+
+        // Add HEAD after the remote was written to config, we need it to know what to check out later, and assure
+        // the ref that HEAD points to is present no matter what.
+        let head_local_tracking_branch = format!("refs/remotes/{remote_name}/HEAD");
+        let head_refspec = gix_refspec::parse(
+            format!("HEAD:{head_local_tracking_branch}").as_str().into(),
+            gix_refspec::parse::Operation::Fetch,
+        )
+        .expect("valid")
+        .to_owned();
+        let pending_pack = {
+            // For shallow clones, we already connected once, so we need to connect again
+            #[cfg(feature = "blocking-network-client")]
+            let mut connection = remote.connect_blocking(remote::Direction::Fetch)?;
+            #[cfg(all(feature = "async-network-client", not(feature = "blocking-network-client")))]
+            let mut connection = remote.connect_async(remote::Direction::Fetch)?;
+            if let Some(f) = self.configure_connection.as_mut() {
+                f(&mut connection).map_err(Error::RemoteConnection)?;
+            }
+            let mut fetch_opts = {
+                let mut opts = self.fetch_options.clone();
+                if !opts.extra_refspecs.contains(&head_refspec) {
+                    opts.extra_refspecs.push(head_refspec.clone());
+                }
+                if let Some(ref_name) = &self.ref_name {
+                    opts.extra_refspecs.push(
+                        gix_refspec::parse(ref_name.as_ref().as_bstr(), gix_refspec::parse::Operation::Fetch)
+                            .expect("partial names are valid refspecs")
+                            .to_owned(),
+                    );
+                }
+                opts
+            };
+            match connection.prepare_fetch(&mut progress, fetch_opts.clone()) {
+                Ok(prepare) => prepare,
+                Err(remote::fetch::prepare::Error::RefMap(remote::ref_map::Error::InitRefMap(
+                    gix_protocol::fetch::refmap::init::Error::MappingValidation(err),
+                ))) if err.issues.len() == 1
+                    && fetch_opts.extra_refspecs.contains(&head_refspec)
+                    && matches!(
+                        err.issues.first(),
+                        Some(gix_refspec::match_group::validate::Issue::Conflict {
+                            destination_full_ref_name,
+                            ..
+                        }) if *destination_full_ref_name == head_local_tracking_branch
+                    ) =>
+                {
+                    let head_refspec_idx = fetch_opts
+                        .extra_refspecs
+                        .iter()
+                        .enumerate()
+                        .find_map(|(idx, spec)| (*spec == head_refspec).then_some(idx))
+                        .expect("it's contained");
+                    // On the very special occasion that we fail as there is a remote `refs/heads/HEAD` reference that clashes
+                    // with our implicit refspec, retry without it. Maybe this tells us that we shouldn't have that implicit
+                    // refspec, as git can do this without connecting twice.
+                    #[cfg(feature = "blocking-network-client")]
+                    let connection = remote.connect_blocking(remote::Direction::Fetch)?;
+                    #[cfg(all(feature = "async-network-client", not(feature = "blocking-network-client")))]
+                    let connection = remote.connect_async(remote::Direction::Fetch)?;
+                    fetch_opts.extra_refspecs.remove(head_refspec_idx);
+                    connection.prepare_fetch(&mut progress, fetch_opts)?
+                }
+                Err(err) => return Err(err.into()),
+            }
+        };
+
+        // Assure problems with custom branch names fail early, not after getting the pack or during negotiation.
+        if let Some(ref_name) = &self.ref_name {
+            util::find_custom_refname(pending_pack.ref_map(), ref_name)?;
+        }
+        if pending_pack.ref_map().object_hash != repo.object_hash() {
+            unimplemented!("configure repository to expect a different object hash as advertised by the server")
+        }
+        let reflog_message = {
+            let mut b = self.url.to_bstring();
+            b.insert_str(0, "clone: from ");
+            b
+        };
+        let outcome = pending_pack
+            .with_write_packed_refs_only(true)
+            .with_reflog_message(RefLogMessage::Override {
+                message: reflog_message.clone(),
+            })
+            .with_shallow(self.shallow.clone())
+            .receive(&mut progress, should_interrupt)
+            ?;
+
+        util::append_config_to_repo_config(repo, config);
+        util::update_head(
+            repo,
+            &outcome.ref_map,
+            reflog_message.as_ref(),
+            remote_name.as_ref(),
+            self.ref_name.as_ref(),
+        )?;
+
+        Ok((self.repo.take().expect("still present"), outcome))
+    }
+
+    /// Fetch a pack and update local branches according to refspecs, providing `progress` and checking `should_interrupt`
+    /// to stop the operation.
+    ///
+    /// See [`fetch_only_blocking()`][Self::fetch_only_blocking()] for details. This is the async-flavored variant.
+    #[cfg(all(feature = "async-network-client", not(feature = "blocking-network-client")))]
+    pub async fn fetch_only_async<P>(
         &mut self,
         mut progress: P,
         should_interrupt: &std::sync::atomic::AtomicBool,
@@ -322,7 +567,7 @@ impl PrepareFetch {
         P: crate::NestedProgress,
         P::SubProgress: 'static,
     {
-        let (repo, fetch_outcome) = self.fetch_only(progress, should_interrupt)?;
+        let (repo, fetch_outcome) = self.fetch_only_blocking(progress, should_interrupt)?;
         Ok((
             crate::clone::PrepareCheckout {
                 repo: repo.into(),

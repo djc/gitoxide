@@ -24,9 +24,9 @@ doctest = false
 ## If set, blocking command implementations are available and will use the blocking version of the `gix-transport` crate.
 blocking-client = [
     "gix-transport/blocking-client",
-    # Required by downstream callers that still use the `maybe_async` re-export to compile a single function
-    # in either blocking or async mode. This is a global toggle, so when both `blocking-client` and
-    # `async-client` are enabled the sync form takes precedence for any `#[maybe_async]` site.
+    # `maybe-async`'s `is_sync` feature is enabled so any `#[maybe_async::test]` in our dev-tests (and in
+    # downstream crates' dev-tests that use `#[maybe_async::test]`) generates the sync flavor when this
+    # feature is selected. The runtime gix-protocol crate no longer uses `#[maybe_async]` itself.
     "maybe-async/is_sync",
     "handshake",
     "fetch"
@@ -106,6 +106,10 @@ bstr = { version = "1.12.0", default-features = false, features = [
 async-trait = { version = "0.1.51", optional = true }
 futures-io = { version = "0.3.32", optional = true }
 futures-lite = { version = "2.1.0", optional = true }
+# `maybe-async` is no longer used by gix-protocol's own source, but it remains a regular dependency
+# so its `is_sync` cargo feature can be toggled through the `blocking-client` feature, which keeps
+# `#[maybe_async::test]` working in this crate's tests (and in any downstream crate that picks the
+# same feature pattern). `maybe-async` is a proc-macro crate, so it imposes no runtime weight.
 maybe-async = "0.2.6"
 
 document-features = { version = "0.2.0", optional = true }

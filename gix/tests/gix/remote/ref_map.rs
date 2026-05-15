@@ -2,7 +2,7 @@
 mod blocking_and_async_io {
     use gix::{config::tree::Protocol, remote::Direction::Fetch};
     use gix_features::progress;
-    use gix_protocol::maybe_async;
+    
 
     use crate::{
         remote,

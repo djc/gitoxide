@@ -45,8 +45,19 @@ pub use gix::protocol::BlockingSendFlushOnDrop as SendFlushOnDrop;
 #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 pub use gix::protocol::AsyncSendFlushOnDrop as SendFlushOnDrop;
 
-#[cfg(any(feature = "async-client", feature = "blocking-client"))]
-#[gix::protocol::maybe_async::maybe_async]
+#[cfg(feature = "blocking-client")]
+pub fn connect<Url, E>(
+    url: Url,
+    options: io_mode::connect::Options,
+) -> Result<SendFlushOnDrop<Box<dyn io_mode::Transport + Send>>, io_mode::connect::Error>
+where
+    Url: TryInto<gix::url::Url, Error = E>,
+    gix::url::parse::Error: From<E>,
+{
+    Ok(SendFlushOnDrop::new(io_mode::connect::connect(url, options)?, false))
+}
+
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 pub async fn connect<Url, E>(
     url: Url,
     options: io_mode::connect::Options,

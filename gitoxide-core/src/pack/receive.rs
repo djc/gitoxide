@@ -9,7 +9,7 @@ use crate::{OutputFormat, net, pack::receive::protocol::fetch::negotiate};
 use gix::protocol::transport::client::blocking_io::connect;
 #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 use gix::protocol::transport::client::async_io::connect;
-use gix::{DynNestedProgress, config::tree::Key, protocol::maybe_async, remote::fetch::Error};
+use gix::{DynNestedProgress, config::tree::Key, remote::fetch::Error};
 pub use gix::{
     NestedProgress, Progress,
     hash::ObjectId,
@@ -33,7 +33,139 @@ pub struct Context<W> {
     pub object_hash: gix::hash::Kind,
 }
 
-#[maybe_async::maybe_async]
+#[cfg(feature = "blocking-client")]
+pub fn receive<P, W>(
+    protocol: Option<net::Protocol>,
+    url: &str,
+    directory: Option<PathBuf>,
+    refs_directory: Option<PathBuf>,
+    mut wanted_refs: Vec<BString>,
+    mut progress: P,
+    ctx: Context<W>,
+) -> anyhow::Result<()>
+where
+    W: std::io::Write,
+    P: NestedProgress + 'static,
+    P::SubProgress: 'static,
+{
+    let mut transport = net::connect(
+        url,
+        connect::Options {
+            version: protocol.unwrap_or_default().into(),
+            ..Default::default()
+        },
+    )?;
+    let trace_packetlines = std::env::var_os(
+        gix::config::tree::Gitoxide::TRACE_PACKET
+            .environment_override()
+            .expect("set"),
+    )
+    .is_some();
+
+    let agent = gix::protocol::agent(gix::env::agent());
+    #[cfg(feature = "blocking-client")]
+    let mut handshake = gix::protocol::handshake_blocking(
+        &mut transport.inner,
+        transport::Service::UploadPack,
+        gix::protocol::credentials::builtin,
+        vec![("agent".into(), Some(agent.clone()))],
+        &mut progress,
+    )?;
+    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+    let mut handshake = gix::protocol::handshake_async(
+        &mut transport.inner,
+        transport::Service::UploadPack,
+        gix::protocol::credentials::builtin,
+        vec![("agent".into(), Some(agent.clone()))],
+        &mut progress,
+    )
+    .await?;
+    if wanted_refs.is_empty() {
+        wanted_refs.push("refs/heads/*:refs/remotes/origin/*".into());
+    }
+    let fetch_refspecs: Vec<_> = wanted_refs
+        .into_iter()
+        .map(|ref_name| {
+            gix::refspec::parse(ref_name.as_bstr(), gix::refspec::parse::Operation::Fetch).map(|r| r.to_owned())
+        })
+        .collect::<Result<_, _>>()?;
+    let user_agent = ("agent", Some(agent.clone().into()));
+
+    let context = gix::protocol::fetch::refmap::init::Context {
+        fetch_refspecs: fetch_refspecs.clone(),
+        extra_refspecs: vec![],
+    };
+
+    let fetch_refmap = handshake.prepare_lsrefs_or_extract_refmap(user_agent.clone(), true, context)?;
+
+    #[cfg(feature = "blocking-client")]
+    let refmap = fetch_refmap.fetch_blocking(&mut progress, &mut transport.inner, trace_packetlines)?;
+    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+    let refmap = fetch_refmap
+        .fetch_async(&mut progress, &mut transport.inner, trace_packetlines)
+        .await?;
+
+    if refmap.is_missing_required_mapping() {
+        return Err(Error::NoMapping {
+            refspecs: refmap.refspecs.clone(),
+            num_remote_refs: refmap.remote_refs.len(),
+        }
+        .into());
+    }
+
+    let mut negotiate = Negotiate { refmap: &refmap };
+    let consume_pack = |read_pack: &mut dyn std::io::BufRead,
+                        progress: &mut dyn gix::progress::DynNestedProgress,
+                        should_interrupt: &std::sync::atomic::AtomicBool| {
+        receive_pack_blocking(
+            directory,
+            refs_directory,
+            read_pack,
+            progress,
+            &refmap.remote_refs,
+            should_interrupt,
+            ctx.out,
+            ctx.thread_limit,
+            ctx.object_hash,
+            ctx.format,
+        )
+        .map(|_| true)
+    };
+    let context = gix::protocol::fetch::Context {
+        handshake: &mut handshake,
+        transport: &mut transport.inner,
+        user_agent,
+        trace_packetlines,
+    };
+    let options = gix::protocol::fetch::Options {
+        shallow_file: "no shallow file required as we reject it to keep it simple".into(),
+        shallow: &Default::default(),
+        tags: Default::default(),
+        reject_shallow_remote: true,
+    };
+    #[cfg(feature = "blocking-client")]
+    gix::protocol::fetch_blocking(
+        &mut negotiate,
+        consume_pack,
+        progress,
+        &ctx.should_interrupt,
+        context,
+        options,
+    )?;
+    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+    gix::protocol::fetch_async(
+        &mut negotiate,
+        consume_pack,
+        progress,
+        &ctx.should_interrupt,
+        context,
+        options,
+    )
+    .await?;
+    Ok(())
+}
+
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
 pub async fn receive<P, W>(
     protocol: Option<net::Protocol>,
     url: &str,

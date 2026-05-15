@@ -43,7 +43,6 @@ pub use futures_lite;
 pub use gix_credentials as credentials;
 /// A convenience export allowing users of gix-protocol to use the transport layer without their own cargo dependency.
 pub use gix_transport as transport;
-pub use maybe_async;
 
 ///
 pub mod fetch;
