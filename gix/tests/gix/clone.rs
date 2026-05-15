@@ -71,7 +71,7 @@ mod blocking_io {
         let remote = repo.head()?.into_remote(Direction::Fetch).expect("present")?;
 
         remote
-            .connect(Direction::Fetch)?
+            .connect_blocking(Direction::Fetch)?
             .prepare_fetch(gix::progress::Discard, Default::default())?
             .with_shallow(Shallow::undo())
             .receive(gix::progress::Discard, &AtomicBool::default())?;
@@ -199,7 +199,7 @@ mod blocking_io {
 
         let remote = repo.head()?.into_remote(Direction::Fetch).expect("present")?;
         remote
-            .connect(Direction::Fetch)?
+            .connect_blocking(Direction::Fetch)?
             .prepare_fetch(gix::progress::Discard, Default::default())?
             .with_shallow(Shallow::Deepen(1))
             .receive(gix::progress::Discard, &AtomicBool::default())?;
@@ -220,7 +220,7 @@ mod blocking_io {
 
         let shallow_commit_count = repo.head_id()?.ancestors().all()?.count();
         remote
-            .connect(Direction::Fetch)?
+            .connect_blocking(Direction::Fetch)?
             .prepare_fetch(gix::progress::Discard, Default::default())?
             .with_shallow(Shallow::Since {
                 cutoff: gix::date::Time::new(1112354053, 0),
@@ -270,7 +270,7 @@ mod blocking_io {
 
         let remote = repo.head()?.into_remote(Direction::Fetch).expect("present")?;
         remote
-            .connect(Direction::Fetch)?
+            .connect_blocking(Direction::Fetch)?
             .prepare_fetch(gix::progress::Discard, Default::default())?
             .with_shallow(Shallow::Deepen(2))
             .receive(gix::progress::Discard, &AtomicBool::default())?;

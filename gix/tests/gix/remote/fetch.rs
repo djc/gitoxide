@@ -177,7 +177,7 @@ mod blocking_and_async_io {
                 let expected_object_count = round_to_create_pack + 1 + 1 /* first commit + tree */;
                 create_empty_commit(&remote_repo)?;
                 match remote
-                    .connect(Fetch)?
+                    .connect_blocking(Fetch)?
                     .prepare_fetch(gix::progress::Discard, Default::default())?
                     .receive(gix::progress::Discard, &IS_INTERRUPTED)
                 {
@@ -213,7 +213,7 @@ mod blocking_and_async_io {
             .with_fetch_tags(fetch::Tags::Included);
 
         remote
-            .connect(Fetch)?
+            .connect_blocking(Fetch)?
             .prepare_fetch(gix::progress::Discard, Default::default())?
             .receive(gix::progress::Discard, &AtomicBool::default())?;
 
@@ -326,7 +326,7 @@ mod blocking_and_async_io {
                 );
                 let changes = remote
                     .with_refspecs(Some("refs/heads/*:refs/remotes/origin/*"), Fetch)?
-                    .connect(Fetch)
+                    .connect_blocking(Fetch)
                     .await?
                     .prepare_fetch(gix::progress::Discard, Default::default())
                     .await?
@@ -376,7 +376,7 @@ mod blocking_and_async_io {
         let prev_commits = repo.head_id()?.ancestors().all()?.count();
 
         let changes = remote
-            .connect(Fetch)
+            .connect_blocking(Fetch)
             .await?
             .prepare_fetch(gix::progress::Discard, Default::default())
             .await?
@@ -422,7 +422,7 @@ mod blocking_and_async_io {
         );
         let prev_commits = repo.head_id()?.ancestors().all()?.count();
         let changes = remote
-            .connect(Fetch)
+            .connect_blocking(Fetch)
             .await?
             .prepare_fetch(gix::progress::Discard, Default::default())
             .await?
@@ -503,7 +503,7 @@ mod blocking_and_async_io {
                     remote.replace_refspecs(Some("HEAD:refs/remotes/origin/does-not-yet-exist"), Fetch)?;
 
                     let res = remote
-                        .connect(Fetch)
+                        .connect_blocking(Fetch)
                         .await?
                         .prepare_fetch(gix::progress::Discard, Default::default())
                         .await?
@@ -569,7 +569,7 @@ mod blocking_and_async_io {
             remote.replace_refspecs(Some("HEAD"), Fetch)?;
 
             let res: gix::remote::fetch::Outcome = remote
-                .connect(Fetch)
+                .connect_blocking(Fetch)
                 .await?
                 .prepare_fetch(gix::progress::Discard, Default::default())
                 .await?
@@ -638,7 +638,7 @@ mod blocking_and_async_io {
         remote.replace_refspecs(Some("refs/heads/does-not-exist"), Fetch)?;
 
         let err = remote
-            .connect(Fetch)
+            .connect_blocking(Fetch)
             .await?
             .prepare_fetch(gix::progress::Discard, Default::default())
             .await?
@@ -679,14 +679,14 @@ mod blocking_and_async_io {
                 let remote = into_daemon_remote_if_async(repo.find_remote("origin")?, daemon.as_ref(), "base");
                 {
                     remote
-                        .connect(Fetch)
+                        .connect_blocking(Fetch)
                         .await?
                         .prepare_fetch(progress::Discard, Default::default())
                         .await?;
                     // early drops are fine and won't block.
                 }
                 let outcome = remote
-                    .connect(Fetch)
+                    .connect_blocking(Fetch)
                     .await?
                     .prepare_fetch(progress::Discard, Default::default())
                     .await?
@@ -707,7 +707,7 @@ mod blocking_and_async_io {
                     "clone-as-base-with-changes",
                 );
                 let outcome: gix::remote::fetch::Outcome = remote
-                    .connect(Fetch)
+                    .connect_blocking(Fetch)
                     .await?
                     .prepare_fetch(progress::Discard, Default::default())
                     .await?

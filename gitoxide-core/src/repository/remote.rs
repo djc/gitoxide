@@ -72,9 +72,11 @@ mod refs_impl {
                 .context("Remote didn't have a URL to connect to")?
                 .to_bstring()
         ));
-        let (map, handshake) = remote
-            .connect(gix::remote::Direction::Fetch)
-            .await?
+        #[cfg(feature = "blocking-client")]
+        let connection = remote.connect_blocking(gix::remote::Direction::Fetch)?;
+        #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+        let connection = remote.connect_async(gix::remote::Direction::Fetch).await?;
+        let (map, handshake) = connection
             .ref_map(
                 &mut progress,
                 gix::remote::ref_map::Options {

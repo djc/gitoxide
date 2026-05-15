@@ -5,10 +5,10 @@ use std::{
 };
 
 use crate::{OutputFormat, net, pack::receive::protocol::fetch::negotiate};
-#[cfg(feature = "async-client")]
-use gix::protocol::transport::client::async_io::connect;
 #[cfg(feature = "blocking-client")]
 use gix::protocol::transport::client::blocking_io::connect;
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+use gix::protocol::transport::client::async_io::connect;
 use gix::{DynNestedProgress, config::tree::Key, protocol::maybe_async, remote::fetch::Error};
 pub use gix::{
     NestedProgress, Progress,
@@ -64,15 +64,6 @@ where
     .is_some();
 
     let agent = gix::protocol::agent(gix::env::agent());
-    #[cfg(feature = "async-client")]
-    let mut handshake = gix::protocol::handshake_async(
-        &mut transport.inner,
-        transport::Service::UploadPack,
-        gix::protocol::credentials::builtin,
-        vec![("agent".into(), Some(agent.clone()))],
-        &mut progress,
-    )
-    .await?;
     #[cfg(feature = "blocking-client")]
     let mut handshake = gix::protocol::handshake_blocking(
         &mut transport.inner,
@@ -81,6 +72,15 @@ where
         vec![("agent".into(), Some(agent.clone()))],
         &mut progress,
     )?;
+    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+    let mut handshake = gix::protocol::handshake_async(
+        &mut transport.inner,
+        transport::Service::UploadPack,
+        gix::protocol::credentials::builtin,
+        vec![("agent".into(), Some(agent.clone()))],
+        &mut progress,
+    )
+    .await?;
     if wanted_refs.is_empty() {
         wanted_refs.push("refs/heads/*:refs/remotes/origin/*".into());
     }
@@ -99,13 +99,12 @@ where
 
     let fetch_refmap = handshake.prepare_lsrefs_or_extract_refmap(user_agent.clone(), true, context)?;
 
-    #[cfg(feature = "async-client")]
+    #[cfg(feature = "blocking-client")]
+    let refmap = fetch_refmap.fetch_blocking(&mut progress, &mut transport.inner, trace_packetlines)?;
+    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
     let refmap = fetch_refmap
         .fetch_async(&mut progress, &mut transport.inner, trace_packetlines)
         .await?;
-
-    #[cfg(feature = "blocking-client")]
-    let refmap = fetch_refmap.fetch_blocking(&mut progress, &mut transport.inner, trace_packetlines)?;
 
     if refmap.is_missing_required_mapping() {
         return Err(Error::NoMapping {
@@ -145,16 +144,6 @@ where
         tags: Default::default(),
         reject_shallow_remote: true,
     };
-    #[cfg(feature = "async-client")]
-    gix::protocol::fetch_async(
-        &mut negotiate,
-        consume_pack,
-        progress,
-        &ctx.should_interrupt,
-        context,
-        options,
-    )
-    .await?;
     #[cfg(feature = "blocking-client")]
     gix::protocol::fetch_blocking(
         &mut negotiate,
@@ -164,6 +153,16 @@ where
         context,
         options,
     )?;
+    #[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+    gix::protocol::fetch_async(
+        &mut negotiate,
+        consume_pack,
+        progress,
+        &ctx.should_interrupt,
+        context,
+        options,
+    )
+    .await?;
     Ok(())
 }
 

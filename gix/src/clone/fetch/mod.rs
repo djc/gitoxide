@@ -121,7 +121,10 @@ impl PrepareFetch {
                 // For shallow clones without a specified ref, we need to determine the ref to clone.
                 // Just fetch HEAD for that.
                 let prev_tags = std::mem::replace(&mut remote.fetch_tags, remote::fetch::Tags::None);
-                let mut connection = remote.connect(remote::Direction::Fetch).await?;
+                #[cfg(feature = "blocking-network-client")]
+                let mut connection = remote.connect_blocking(remote::Direction::Fetch)?;
+                #[cfg(all(feature = "async-network-client", not(feature = "blocking-network-client")))]
+                let mut connection = remote.connect_async(remote::Direction::Fetch).await?;
                 if let Some(f) = self.configure_connection.as_mut() {
                     f(&mut connection).map_err(Error::RemoteConnection)?;
                 }
@@ -218,9 +221,12 @@ impl PrepareFetch {
         )
         .expect("valid")
         .to_owned();
-        let pending_pack: remote::fetch::Prepare<'_, '_, _> = {
+        let pending_pack = {
             // For shallow clones, we already connected once, so we need to connect again
-            let mut connection = remote.connect(remote::Direction::Fetch).await?;
+            #[cfg(feature = "blocking-network-client")]
+            let mut connection = remote.connect_blocking(remote::Direction::Fetch)?;
+            #[cfg(all(feature = "async-network-client", not(feature = "blocking-network-client")))]
+            let mut connection = remote.connect_async(remote::Direction::Fetch).await?;
             if let Some(f) = self.configure_connection.as_mut() {
                 f(&mut connection).map_err(Error::RemoteConnection)?;
             }
@@ -261,7 +267,10 @@ impl PrepareFetch {
                     // On the very special occasion that we fail as there is a remote `refs/heads/HEAD` reference that clashes
                     // with our implicit refspec, retry without it. Maybe this tells us that we shouldn't have that implicit
                     // refspec, as git can do this without connecting twice.
-                    let connection = remote.connect(remote::Direction::Fetch).await?;
+                    #[cfg(feature = "blocking-network-client")]
+                    let connection = remote.connect_blocking(remote::Direction::Fetch)?;
+                    #[cfg(all(feature = "async-network-client", not(feature = "blocking-network-client")))]
+                    let connection = remote.connect_async(remote::Direction::Fetch).await?;
                     fetch_opts.extra_refspecs.remove(head_refspec_idx);
                     connection.prepare_fetch(&mut progress, fetch_opts).await?
                 }

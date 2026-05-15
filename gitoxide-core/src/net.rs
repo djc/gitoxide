@@ -1,9 +1,9 @@
 use std::str::FromStr;
 
-#[cfg(feature = "async-client")]
-use gix::protocol::transport::client::async_io as io_mode;
 #[cfg(feature = "blocking-client")]
 use gix::protocol::transport::client::blocking_io as io_mode;
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+use gix::protocol::transport::client::async_io as io_mode;
 
 #[derive(Default, Clone, Eq, PartialEq, Debug)]
 pub enum Protocol {
@@ -40,10 +40,10 @@ mod impls {
     }
 }
 
-#[cfg(feature = "async-client")]
-pub use gix::protocol::AsyncSendFlushOnDrop as SendFlushOnDrop;
 #[cfg(feature = "blocking-client")]
 pub use gix::protocol::BlockingSendFlushOnDrop as SendFlushOnDrop;
+#[cfg(all(feature = "async-client", not(feature = "blocking-client")))]
+pub use gix::protocol::AsyncSendFlushOnDrop as SendFlushOnDrop;
 
 #[cfg(any(feature = "async-client", feature = "blocking-client"))]
 #[gix::protocol::maybe_async::maybe_async]

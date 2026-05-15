@@ -2,18 +2,13 @@
 
 use std::borrow::Cow;
 
-#[cfg(feature = "async-network-client")]
-use gix_transport::client::async_io::{Transport, connect};
-#[cfg(feature = "blocking-network-client")]
-use gix_transport::client::blocking_io::{Transport, connect};
-
-use crate::{Remote, config::tree::Protocol, remote::Connection};
+use crate::{Remote, config::tree::Protocol};
 
 mod error {
-    use super::connect;
     use crate::{bstr::BString, config, remote};
 
-    /// The error returned by [connect()][crate::Remote::connect()].
+    /// The error returned by [connect_blocking()][crate::Remote::connect_blocking()] or
+    /// [connect_async()][crate::Remote::connect_async()].
     #[derive(Debug, thiserror::Error)]
     #[allow(missing_docs)]
     pub enum Error {
@@ -27,8 +22,14 @@ mod error {
         SchemePermission(#[from] config::protocol::allow::Error),
         #[error("Protocol {scheme:?} of url {url:?} is denied per configuration")]
         ProtocolDenied { url: BString, scheme: gix_url::Scheme },
+        // Note: both blocking_io::connect::Error and async_io::connect::Error are
+        // re-exports of the same underlying type, so a single variant covers both.
+        #[cfg(feature = "blocking-network-client")]
         #[error(transparent)]
-        Connect(#[from] connect::Error),
+        Connect(#[from] gix_transport::client::blocking_io::connect::Error),
+        #[cfg(all(feature = "async-network-client-async-std", not(feature = "blocking-network-client")))]
+        #[error(transparent)]
+        Connect(#[from] gix_transport::client::async_io::connect::Error),
         #[error("The {} url was missing - don't know where to establish a connection to", direction.as_str())]
         MissingUrl { direction: remote::Direction },
         #[error("The given protocol version was invalid. Choose between 1 and 2")]
@@ -44,7 +45,12 @@ mod error {
         /// Return `true` if retrying might result in a different outcome due to IO working out differently.
         fn is_spurious(&self) -> bool {
             match self {
+                #[cfg(any(feature = "blocking-network-client", feature = "async-network-client-async-std"))]
                 Error::Connect(err) => err.is_spurious(),
+                #[cfg_attr(
+                    not(any(feature = "blocking-network-client", feature = "async-network-client-async-std")),
+                    allow(unreachable_patterns)
+                )]
                 _ => false,
             }
         }
@@ -54,56 +60,110 @@ pub use error::Error;
 
 /// Establishing connections to remote hosts (without performing a git-handshake).
 impl<'repo> Remote<'repo> {
-    /// Create a new connection using `transport` to communicate, with `progress` to indicate changes.
+    /// Create a new blocking connection using `transport` to communicate.
     ///
-    /// Note that this method expects the `transport` to be created by the user, which would involve the [`url()`](Self::url()).
-    /// It's meant to be used when async operation is needed with runtimes of the user's choice.
-    pub fn to_connection_with_transport<T>(&self, transport: T) -> Connection<'_, 'repo, T>
+    /// Note that this method expects the `transport` to be created by the user, which would involve the
+    /// [`url()`](Self::url()).
+    #[cfg(feature = "blocking-network-client")]
+    pub fn to_blocking_connection_with_transport<T>(
+        &self,
+        transport: T,
+    ) -> crate::remote::connection::blocking_io::Connection<'_, 'repo, T>
     where
-        T: Transport,
+        T: gix_transport::client::blocking_io::Transport,
     {
         let trace = self.repo.config.trace_packet();
-        Connection {
+        crate::remote::connection::blocking_io::Connection {
             remote: self,
             authenticate: None,
             transport_options: None,
             handshake: None,
-            transport: crate::remote::connection::SendFlushOnDrop::new(transport, trace),
+            transport: gix_protocol::BlockingSendFlushOnDrop::new(transport, trace),
             trace,
         }
     }
 
-    /// Connect to the url suitable for `direction` and return a handle through which operations can be performed.
+    /// Create a new async connection using `transport` to communicate.
+    ///
+    /// Note that this method expects the `transport` to be created by the user, which would involve the
+    /// [`url()`](Self::url()).
+    /// It's meant to be used when async operation is needed with runtimes of the user's choice.
+    #[cfg(feature = "async-network-client")]
+    pub fn to_async_connection_with_transport<T>(
+        &self,
+        transport: T,
+    ) -> crate::remote::connection::async_io::Connection<'_, 'repo, T>
+    where
+        T: gix_transport::client::async_io::Transport,
+    {
+        let trace = self.repo.config.trace_packet();
+        crate::remote::connection::async_io::Connection {
+            remote: self,
+            authenticate: None,
+            transport_options: None,
+            handshake: None,
+            transport: gix_protocol::AsyncSendFlushOnDrop::new(transport, trace),
+            trace,
+        }
+    }
+
+    /// Connect to the url suitable for `direction` using a blocking transport.
     ///
     /// Note that the `protocol.version` configuration key affects the transport protocol used to connect,
     /// with `2` being the default.
-    ///
-    /// The transport used for connection can be configured via `transport_mut().configure()` assuming the actually
-    /// used transport is well known. If that's not the case, the transport can be created by hand and passed to
-    /// [to_connection_with_transport()][Self::to_connection_with_transport()].
-    #[cfg(any(feature = "blocking-network-client", feature = "async-network-client-async-std"))]
-    #[gix_protocol::maybe_async::maybe_async]
-    pub async fn connect(
+    #[cfg(feature = "blocking-network-client")]
+    pub fn connect_blocking(
         &self,
         direction: crate::remote::Direction,
-    ) -> Result<Connection<'_, 'repo, Box<dyn Transport + Send>>, Error> {
+    ) -> Result<
+        crate::remote::connection::blocking_io::Connection<
+            '_,
+            'repo,
+            Box<dyn gix_transport::client::blocking_io::Transport + Send>,
+        >,
+        Error,
+    > {
         let (url, version) = self.sanitized_url_and_version(direction)?;
-        #[cfg(feature = "blocking-network-client")]
         let scheme_is_ssh = url.scheme == gix_url::Scheme::Ssh;
-        let transport = connect::connect(
+        let transport = gix_transport::client::blocking_io::connect::connect(
             url,
-            connect::Options {
+            gix_transport::client::blocking_io::connect::Options {
                 version,
-                #[cfg(feature = "blocking-network-client")]
                 ssh: scheme_is_ssh
                     .then(|| self.repo.ssh_connect_options())
                     .transpose()?
                     .unwrap_or_default(),
                 trace: self.repo.config.trace_packet(),
             },
+        )?;
+        Ok(self.to_blocking_connection_with_transport(transport))
+    }
+
+    /// Connect to the url suitable for `direction` using an async transport.
+    #[cfg(feature = "async-network-client-async-std")]
+    pub async fn connect_async(
+        &self,
+        direction: crate::remote::Direction,
+    ) -> Result<
+        crate::remote::connection::async_io::Connection<
+            '_,
+            'repo,
+            Box<dyn gix_transport::client::async_io::Transport + Send>,
+        >,
+        Error,
+    > {
+        let (url, version) = self.sanitized_url_and_version(direction)?;
+        let transport = gix_transport::client::async_io::connect::connect(
+            url,
+            gix_transport::client::async_io::connect::Options {
+                version,
+                #[cfg(feature = "blocking-network-client")]
+                ssh: Default::default(),
+                trace: self.repo.config.trace_packet(),
+            },
         )
         .await?;
-        Ok(self.to_connection_with_transport(transport))
+        Ok(self.to_async_connection_with_transport(transport))
     }
 
     /// Produce the sanitized URL and protocol version to use as obtained by querying the repository configuration.
@@ -128,8 +188,6 @@ impl<'repo> Remote<'repo> {
                 let (git_dir, _work_dir) = gix_discover::repository::Path::from_dot_git_dir(
                     dir.clone().into_owned(),
                     kind,
-                    // precomposed unicode doesn't matter here as long as the produced path is accessible,
-                    // which is a given either way.
                     &gix_fs::current_dir(false)?,
                 )
                 .ok_or_else(|| Error::InvalidRemoteRepositoryPath {
@@ -141,7 +199,7 @@ impl<'repo> Remote<'repo> {
             Ok(url)
         }
 
-        let version = crate::config::tree::Protocol::VERSION
+        let version = Protocol::VERSION
             .try_into_protocol_version(self.repo.config.resolved.integer(Protocol::VERSION))
             .map_err(|err| Error::UnknownProtocol { source: err })?;
 

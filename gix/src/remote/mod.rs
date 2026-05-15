@@ -53,10 +53,15 @@ pub mod fetch;
 #[cfg(any(feature = "async-network-client", feature = "blocking-network-client"))]
 pub mod connect;
 
+///
 #[cfg(any(feature = "async-network-client", feature = "blocking-network-client"))]
-mod connection;
+pub mod connection;
 #[cfg(any(feature = "async-network-client", feature = "blocking-network-client"))]
-pub use connection::{AuthenticateFn, Connection, ref_map};
+pub use connection::{AuthenticateFn, ref_map};
+#[cfg(feature = "blocking-network-client")]
+pub use connection::blocking_io;
+#[cfg(feature = "async-network-client")]
+pub use connection::async_io;
 
 ///
 pub mod save;

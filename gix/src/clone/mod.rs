@@ -1,17 +1,22 @@
 #![allow(clippy::result_large_err)]
 use crate::{bstr::BString, remote};
 
-#[cfg(feature = "async-network-client")]
-use gix_transport::client::async_io::Transport;
-#[cfg(feature = "blocking-network-client")]
-use gix_transport::client::blocking_io::Transport;
-
 type ConfigureRemoteFn =
     Box<dyn FnMut(crate::Remote<'_>) -> Result<crate::Remote<'_>, Box<dyn std::error::Error + Send + Sync>>>;
-#[cfg(any(feature = "async-network-client", feature = "blocking-network-client"))]
+#[cfg(feature = "blocking-network-client")]
 type ConfigureConnectionFn = Box<
     dyn FnMut(
-        &mut remote::Connection<'_, '_, Box<dyn Transport + Send>>,
+        &mut remote::blocking_io::Connection<
+            '_,
+            '_,
+            Box<dyn gix_transport::client::blocking_io::Transport + Send>,
+        >,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>,
+>;
+#[cfg(all(feature = "async-network-client", not(feature = "blocking-network-client")))]
+type ConfigureConnectionFn = Box<
+    dyn FnMut(
+        &mut remote::async_io::Connection<'_, '_, Box<dyn gix_transport::client::async_io::Transport + Send>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>,
 >;
 
@@ -172,7 +177,6 @@ fn cleanup_clone_destination_on_drop(repo: &crate::Repository, remove_worktree_o
 // once async and clone are a thing.
 #[cfg(any(feature = "async-network-client", feature = "blocking-network-client"))]
 mod access_feat {
-    use super::Transport;
     use crate::clone::PrepareFetch;
 
     /// Builder
@@ -181,10 +185,32 @@ mod access_feat {
         ///
         /// It is most commonly used for custom configuration.
         // TODO: tests
+        #[cfg(feature = "blocking-network-client")]
         pub fn configure_connection(
             mut self,
             f: impl FnMut(
-                &mut crate::remote::Connection<'_, '_, Box<dyn Transport + Send>>,
+                &mut crate::remote::blocking_io::Connection<
+                    '_,
+                    '_,
+                    Box<dyn gix_transport::client::blocking_io::Transport + Send>,
+                >,
+            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+            + 'static,
+        ) -> Self {
+            self.configure_connection = Some(Box::new(f));
+            self
+        }
+
+        /// Set a callback to use for configuring the async connection to use right before connecting to the remote.
+        #[cfg(all(feature = "async-network-client", not(feature = "blocking-network-client")))]
+        pub fn configure_connection(
+            mut self,
+            f: impl FnMut(
+                &mut crate::remote::async_io::Connection<
+                    '_,
+                    '_,
+                    Box<dyn gix_transport::client::async_io::Transport + Send>,
+                >,
             ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
             + 'static,
         ) -> Self {

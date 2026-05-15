@@ -62,7 +62,7 @@ pub(crate) mod function {
             remote = remote.with_fetch_tags(gix::remote::fetch::Tags::None);
         }
         let res: gix::remote::fetch::Outcome = remote
-            .connect(gix::remote::Direction::Fetch)?
+            .connect_blocking(gix::remote::Direction::Fetch)?
             .prepare_fetch(&mut progress, Default::default())?
             .with_dry_run(dry_run)
             .with_shallow(shallow)

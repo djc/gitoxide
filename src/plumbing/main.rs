@@ -748,7 +748,7 @@ pub fn main() -> Result<()> {
                             },
                         )
                     }
-                    #[cfg(feature = "gitoxide-core-async-client")]
+                    #[cfg(all(feature = "gitoxide-core-async-client", not(feature = "gitoxide-core-blocking-client")))]
                     {
                         let (_handle, progress) = async_util::prepare(
                             auto_verbose,
@@ -963,7 +963,7 @@ pub fn main() -> Result<()> {
                         },
                     )
                 }
-                #[cfg(feature = "gitoxide-core-async-client")]
+                #[cfg(all(feature = "gitoxide-core-async-client", not(feature = "gitoxide-core-blocking-client")))]
                 free::pack::Subcommands::Receive {
                     protocol,
                     url,

@@ -66,7 +66,7 @@ mod blocking_and_async_io {
                 None,
             );
             let (map, _handshake) = remote
-                .connect(Fetch)
+                .connect_blocking(Fetch)
                 .await?
                 .ref_map(progress::Discard, Default::default())
                 .await?;
